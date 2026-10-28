@@ -8,6 +8,8 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-28
+
 ### Added
 - **Diagnostics** at the bottom of Settings: your Kalends version, how it's installed, the
   operating system and Python, where the settings and log are, and the last 50 lines of the
