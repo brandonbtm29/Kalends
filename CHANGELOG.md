@@ -8,6 +8,12 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+### Added
+- **Settings › Diagnostics**: your Kalends version, how it's installed, the operating system and
+  Python, where the settings and log are, and the last 50 lines of the log, with a **Copy**
+  button for a GitHub issue or an email. Calendar links, share and booking links, passwords,
+  keys and tokens are replaced with ***. Like the rest of the panel, it needs the admin password.
+
 ## [0.11.0] - 2026-10-22
 
 ### Changed
