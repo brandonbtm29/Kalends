@@ -47,7 +47,8 @@ def test_each_page_shows_its_sections_tabs(panel):
         "/people": ["/sharing", "/people", "/rules", "/preview"],
         "/preview": ["/sharing", "/people", "/rules", "/preview"],
         "/video-calls": ["/requests", "/video-calls", "/notifications"],
-        "/setup": ["/settings", "/setup"],
+        "/setup": ["/settings", "/setup", "/diagnostics"],
+        "/diagnostics": ["/settings", "/setup", "/diagnostics"],
     }
     for path, want in expect.items():
         html = c.get(path).text

@@ -33,7 +33,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from markupsafe import Markup, escape
 from starlette.concurrency import run_in_threadpool
 
-from .. import __version__, autostart, bookings, conferencing, localcal, tailscale, updates
+from .. import __version__, autostart, bookings, conferencing, localcal, support, tailscale, updates
 from ..availability import busy_times, is_free
 from ..config import (
     EMOJI_MARKERS,
@@ -188,7 +188,11 @@ SECTIONS = [
         "settings",
         "Settings",
         "/settings",
-        [("settings", "General", "/settings"), ("setup", "This computer", "/setup")],
+        [
+            ("settings", "General", "/settings"),
+            ("setup", "This computer", "/setup"),
+            ("diagnostics", "Diagnostics", "/diagnostics"),
+        ],
     ),
 ]
 # Pages one level down (an audience, a calendar, a person, an event) belong to a tab but show a
@@ -1916,6 +1920,29 @@ def create_admin_app(rt: Runtime) -> FastAPI:
         resp = done("/settings", "admin_pw")
         set_session(resp, sess.get("c"))  # keep this browser signed in
         return resp
+
+    # -- diagnostics: a bug report with every secret blanked --------------------------------------
+
+    def diagnostics_page(request, sess):
+        """Making the report runs `git status` and reads the log, so keep it off the event loop."""
+        log_file = support.log_file(store.config_path)
+        return page(
+            request,
+            "admin/diagnostics.html",
+            {
+                "diagnostics": support.diagnostics_text(rt),
+                "log_folder": log_file.parent,
+                "log_exists": log_file.is_file(),
+            },
+            sess,
+        )
+
+    @app.get("/diagnostics", response_class=HTMLResponse)
+    async def diagnostics_tab(request: Request):
+        sess = session(request)
+        if not sess:
+            return to_login()
+        return await run_in_threadpool(diagnostics_page, request, sess)
 
     # -- meeting requests ----------------------------------------------------------------------
 

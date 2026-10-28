@@ -1,0 +1,18 @@
+{% extends "admin/base.html" %}
+{% block title %}Diagnostics · Kalends settings{% endblock %}
+{% block content %}
+<header class="pagehead">
+  <div>
+    <h1>Diagnostics</h1>
+    <p class="muted">What to send with a bug report: your version, install, system and the end of the log.</p>
+  </div>
+</header>
+
+<section class="panel" id="diagnostics">
+  <p class="muted">Something not working? Press <b>Copy</b> and paste the text into a <a href="https://github.com/{{ cfg.updates.repo }}/issues" target="_blank" rel="noopener">GitHub issue</a> or an email. Calendar links, share links, passwords, keys and tokens are replaced with ***.</p>
+  <div class="form"><textarea id="diagnostics-text" readonly rows="18" spellcheck="false" aria-label="Diagnostics">{{ diagnostics }}</textarea></div>
+  <div class="actions diag-actions"><button type="button" class="secondary" data-copy-from="diagnostics-text">Copy</button></div>
+  <p class="hint">Log folder, on the computer running Kalends: <code>{{ log_folder }}</code></p>
+  {% if not log_exists %}<p class="hint">No log there yet. Kalends writes one when it runs in the background (automatic start or <code>kalends service</code>); <code>kalends serve</code> prints to its own window instead.</p>{% endif %}
+</section>
+{% endblock %}
