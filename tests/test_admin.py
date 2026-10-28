@@ -1,3 +1,4 @@
+import os
 import re
 
 import pytest
@@ -5,10 +6,12 @@ from argon2 import PasswordHasher
 from conftest import COWORKER_SLUG, FIXTURES, PARTNER_PASSWORD, PARTNER_SLUG, WEEK
 from fastapi.testclient import TestClient
 
+from glimpse import __version__, diagnostics, support
 from glimpse.config import Level
 from glimpse.store import ConfigStore
 from glimpse.web.admin import create_admin_app, mask_url
 from glimpse.web.app import create_app
+from glimpse.web.auth import feed_token
 from glimpse.web.runtime import Runtime
 
 ADMIN_PW = "admin-password-123"
@@ -113,6 +116,80 @@ def test_feed_links_are_masked(admin, rt):
     for path in ("/", "/calendars", "/calendars/personal", "/sharing", "/settings"):
         assert "TOPSECRET" not in admin.get(path).text, path
     assert mask_url(secret_url) == "calendar.google.com/….ics"
+
+
+# --- Settings > Diagnostics: admin only, and no secret survives -------------------------------
+
+FAKE_FEED = "https://calendar.google.com/calendar/ical/me%40gmail.com/private-FAKEFEED0123456789/basic.ics"
+FAKE_ICLOUD = "webcal://p01-caldav.icloud.com/published/2/FAKEICLOUD9876543210"
+
+
+def write_log(rt, *lines: str) -> None:
+    log = support.log_file(rt.store.config_path)
+    log.parent.mkdir(exist_ok=True)
+    log.write_text("".join(f"2026-10-28 09:00:00 INFO glimpse: {x}\n" for x in lines), encoding="utf-8")
+
+
+def test_diagnostics_need_admin_sign_in(admin, rt):
+    write_log(rt, "MARKER-LOG-LINE")
+    forged = TestClient(create_admin_app(rt), follow_redirects=False, cookies={"glimpse_admin": "forged"})
+    for client in (admin, forged):
+        r = client.get("/settings")
+        assert r.status_code == 303 and r.headers["location"] == "/login"
+        assert "MARKER-LOG-LINE" not in r.text and "Diagnostics" not in r.text
+    sign_in(admin)
+    html = admin.get("/settings").text
+    assert 'id="diagnostics-text"' in html and 'data-copy-from="diagnostics-text"' in html
+    assert f"Glimpse {__version__}" in html and "MARKER-LOG-LINE" in html
+    assert str(support.log_file(rt.store.config_path).parent) in html
+
+
+def test_diagnostics_hide_every_secret(admin, rt):
+    def mutate(d):
+        d.set_secret(d.calendars["personal"], "url", FAKE_FEED, "GLIMPSE_CAL_PERSONAL_URL")  # in .env
+        d.calendars["lab"]["url"] = FAKE_ICLOUD  # typed straight into config.yaml
+        d.add_person("Alex", "partner")
+
+    rt.store.update(mutate)
+    rt.apply(rt.store.current(), fetch=False)
+    c = rt.cfg
+    person_slug, token = c.people["alex"].slug, feed_token(c, "partner")
+    write_log(
+        rt,
+        f"fetched {FAKE_FEED}",
+        "fetched https://p01-caldav.icloud.com/published/2/FAKEICLOUD9876543210",
+        f"GET /a/{PARTNER_SLUG}/feed/{token}.ics and /p/{person_slug} and /a/{COWORKER_SLUG}",
+        f"key {c.server.secret_key} hashes {c.admin.password_hash} {c.audiences['partner'].password_hash}",
+        "MARKER-LOG-LINE",
+    )
+    # The shared redact() alone lets plain feed links and slugs through.
+    shared_only = diagnostics.redact(diagnostics.tail(str(support.log_file(rt.store.config_path))))
+    assert "FAKEFEED" in shared_only and PARTNER_SLUG in shared_only
+
+    sign_in(admin)
+    html = admin.get("/settings").text
+    text = support.diagnostics_text(c, rt.store.config_path, rt.store.env_path)
+    secrets = ["FAKEFEED", "FAKEICLOUD", PARTNER_SLUG, COWORKER_SLUG, person_slug, token, c.server.secret_key]
+    secrets += [c.admin.password_hash, c.audiences["partner"].password_hash]
+    for out in (html, text):
+        assert "MARKER-LOG-LINE" in out and "fetched ***" in out
+        for secret in secrets:
+            assert secret not in out
+
+
+def test_diagnostics_scrub_spellings():
+    feed = "webcal://example.com/cal/SECRETPATH123.ics?k=1"
+    local = os.path.join(os.path.expanduser("~"), "cals", "private-file.ics")
+    text = diagnostics.redact(
+        "https://example.com/cal/SECRETPATH123.ics?k=1\n"  # webcal:// fetched as https://
+        "GET /cal/SECRETPATH123.ics?k=1\n"  # a request line has no host
+        "HTTPS://EXAMPLE.COM/cal/SECRETPATH123.ics?k=1\n"
+        f"read {local}\n"  # the home folder is already ~ by now
+        "public pages on port 8000"
+    )
+    out = support.scrub(text, support.secret_values(None, [feed, local, "8000", "", "http://[not-a-link"]))
+    assert "SECRETPATH" not in out and "private-file" not in out
+    assert "port 8000" in out  # too short to be a secret: a setting like a port stays readable
 
 
 # --- editing flows, live in the public app ---------------------------------------------------

@@ -95,4 +95,13 @@
     <button type="submit">Change</button>
   </form>
 </section>
+
+<section class="panel" id="diagnostics">
+  <h2>Diagnostics</h2>
+  <p class="muted">Something not working? Press <b>Copy</b> and paste the text into a <a href="https://github.com/{{ cfg.updates.repo }}/issues" target="_blank" rel="noopener">GitHub issue</a> or an email. Calendar links, share links, passwords and keys are replaced with ***.</p>
+  <div class="form"><textarea id="diagnostics-text" readonly rows="12" spellcheck="false" aria-label="Diagnostics">{{ diagnostics }}</textarea></div>
+  <div class="actions diag-actions"><button type="button" class="secondary" data-copy-from="diagnostics-text">Copy</button></div>
+  <p class="hint">Log folder, on the computer running Glimpse: <code>{{ log_folder }}</code></p>
+  {% if not log_exists %}<p class="hint">No log there yet. Glimpse writes one when it runs in the background (automatic start or <code>glimpse service</code>); <code>glimpse serve</code> prints to its own window instead.</p>{% endif %}
+</section>
 {% endblock %}

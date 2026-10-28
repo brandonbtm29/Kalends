@@ -32,7 +32,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from markupsafe import Markup, escape
 from starlette.concurrency import run_in_threadpool
 
-from .. import __version__, autostart, tailscale, updates
+from .. import __version__, autostart, support, tailscale, updates
 from ..config import (
     EMOJI_MARKERS,
     MARKERS,
@@ -1683,14 +1683,29 @@ def create_admin_app(rt: Runtime) -> FastAPI:
 
     # -- settings ------------------------------------------------------------------------------
 
+    def diagnostics_ctx() -> dict:
+        """The Diagnostics section. Making the report runs `git status`, so keep it off the event loop."""
+        c = cfg()
+        states = rt.glimpse.cache.states
+        problems = sum(1 for cid in c.calendars if (st := states.get(cid)) and st.last_error)
+        log_file = support.log_file(store.config_path)
+        return {
+            "diagnostics": support.diagnostics_text(c, store.config_path, store.env_path, problems),
+            "log_folder": log_file.parent,
+            "log_exists": log_file.is_file(),
+        }
+
     def settings_page(request, sess, error=None, status=200):
         return page(
             request,
             "admin/settings.html",
-            {"zones": sorted(zoneinfo.available_timezones()), "error": error},
+            {"zones": sorted(zoneinfo.available_timezones()), "error": error, **diagnostics_ctx()},
             sess,
             status,
         )
+
+    async def settings_error(request, sess, error: str):
+        return await run_in_threadpool(settings_page, request, sess, error, 400)
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings(request: Request):
@@ -1707,8 +1722,8 @@ def create_admin_app(rt: Runtime) -> FastAPI:
         users = [u.strip() for u in str(form.get("allowed_users", "")).splitlines() if u.strip()]
         me = request.headers.get("Tailscale-User-Login", "")
         if users and me and me.lower() not in {u.lower() for u in users}:
-            return settings_page(
-                request, sess, f"Add your own account ({me}) or you'd lock yourself out.", 400
+            return await settings_error(
+                request, sess, f"Add your own account ({me}) or you'd lock yourself out."
             )
 
         def mutate(d: Draft) -> None:
@@ -1739,7 +1754,7 @@ def create_admin_app(rt: Runtime) -> FastAPI:
         try:
             await save(mutate)
         except ConfigError as exc:
-            return settings_page(request, sess, str(exc), 400)
+            return await settings_error(request, sess, str(exc))
         return done("/settings", "saved")
 
     @app.post("/settings/password", response_class=HTMLResponse)
@@ -1753,10 +1768,10 @@ def create_admin_app(rt: Runtime) -> FastAPI:
             ok = False
         pw, pw2 = str(form.get("password", "")), str(form.get("password2", ""))
         if not ok:
-            return settings_page(request, sess, "Your current admin password was wrong.", 400)
+            return await settings_error(request, sess, "Your current admin password was wrong.")
         if len(pw) < 10 or pw != pw2:
-            return settings_page(
-                request, sess, "New password: at least 10 characters, typed the same twice.", 400
+            return await settings_error(
+                request, sess, "New password: at least 10 characters, typed the same twice."
             )
         h = await run_in_threadpool(_hasher.hash, pw)
         await save(
