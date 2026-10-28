@@ -8,6 +8,13 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+### Added
+- **Diagnostics** at the bottom of Settings: your Glimpse version, how it's installed, the
+  operating system and Python, where the settings and log are, and the last 50 lines of the
+  log, with a **Copy** button for a GitHub issue or an email. Calendar links, share links,
+  passwords and keys are replaced with ***. Like the rest of the panel, it needs the admin
+  password.
+
 ## [0.4.1] - 2026-10-13
 
 ### Added

@@ -209,6 +209,7 @@ All commands take `-c path/to/config.yaml` (default `./config.yaml`) and `-e pat
 - The calendar-subscription link works without the password (calendar apps can't sign in), so treat it like the password, or turn subscriptions off for that audience.
 - Forgot the admin password? On the host, run `glimpse admin-password`.
 - Something not working? Check `logs/glimpse.log` in the Glimpse folder. It never contains your feed links.
+- Reporting a problem? **Settings → Diagnostics** shows your version, install, system and the last 50 log lines, with calendar links, share links, passwords and keys replaced by ***. Press **Copy** and paste it into a [GitHub issue](https://github.com/brandonbtm29/Glimpse/issues) or an email.
 - Testing over plain `http://127.0.0.1` works in Chrome and Edge. If another browser keeps returning you to a login page, it's refusing the secure cookie over plain http; use the `https://…ts.net` address instead.
 
 ## Development
