@@ -3,9 +3,11 @@
   "use strict";
 
   document.addEventListener("click", function (e) {
-    var btn = e.target.closest("[data-copy]");
+    var btn = e.target.closest("[data-copy], [data-copy-from]");
     if (btn) {
-      var text = btn.getAttribute("data-copy");
+      // data-copy-from="<id>": copy that box's text (e.g. Settings > Diagnostics)
+      var source = document.getElementById(btn.getAttribute("data-copy-from") || "");
+      var text = source ? source.value : btn.getAttribute("data-copy");
       var done = function () {
         var label = btn.textContent;
         btn.textContent = "Copied";
@@ -15,7 +17,7 @@
       if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(text).then(done);
       } else {
-        var input = btn.parentElement.querySelector("input");
+        var input = source || btn.parentElement.querySelector("input");
         if (input) { input.select(); document.execCommand("copy"); done(); }
       }
       return;

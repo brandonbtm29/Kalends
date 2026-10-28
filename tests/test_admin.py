@@ -1,3 +1,5 @@
+import json
+import os
 import re
 
 import pytest
@@ -5,10 +7,12 @@ from argon2 import PasswordHasher
 from conftest import COWORKER_SLUG, FIXTURES, PARTNER_PASSWORD, PARTNER_SLUG, WEEK
 from fastapi.testclient import TestClient
 
+from kalends import __version__, conferencing, diagnostics, support
 from kalends.config import Level
 from kalends.store import ConfigStore
 from kalends.web.admin import create_admin_app, mask_url
 from kalends.web.app import create_app
+from kalends.web.auth import feed_token
 from kalends.web.runtime import Runtime
 
 ADMIN_PW = "admin-password-123"
@@ -113,6 +117,120 @@ def test_feed_links_are_masked(admin, rt):
     for path in ("/", "/calendars", "/calendars/personal", "/sharing", "/settings"):
         assert "TOPSECRET" not in admin.get(path).text, path
     assert mask_url(secret_url) == "calendar.google.com/….ics"
+
+
+# --- Settings > Diagnostics: admin only, and no secret survives -------------------------------
+
+FAKE_FEED = "https://calendar.google.com/calendar/ical/me%40gmail.com/private-FAKEFEED0123456789/basic.ics"
+FAKE_ICLOUD = "webcal://p01-caldav.icloud.com/published/2/FAKEICLOUD9876543210"
+
+
+def write_log(rt, *lines: str) -> None:
+    log = support.log_file(rt.store.config_path)
+    log.parent.mkdir(exist_ok=True)
+    log.write_text("".join(f"2026-10-28 09:00:00 INFO kalends: {x}\n" for x in lines), encoding="utf-8")
+
+
+def test_diagnostics_need_admin_sign_in(admin, rt):
+    write_log(rt, "MARKER-LOG-LINE")
+    forged = TestClient(create_admin_app(rt), follow_redirects=False, cookies={"glimpse_admin": "forged"})
+    for client in (admin, forged):
+        r = client.get("/settings")
+        assert r.status_code == 303 and r.headers["location"] == "/login"
+        assert "MARKER-LOG-LINE" not in r.text and "Diagnostics" not in r.text
+    sign_in(admin)
+    html = admin.get("/settings").text
+    assert 'id="diagnostics-text"' in html and 'data-copy-from="diagnostics-text"' in html
+    assert f"Kalends {__version__}" in html and "MARKER-LOG-LINE" in html
+    assert str(support.log_file(rt.store.config_path).parent) in html
+
+
+def test_diagnostics_hide_every_secret(admin, rt):
+    def mutate(d):
+        d.set_secret(d.calendars["personal"], "url", FAKE_FEED, "KALENDS_CAL_PERSONAL_URL")  # in .env
+        d.calendars["lab"]["url"] = FAKE_ICLOUD  # typed straight into config.yaml
+        d.add_person("Alex", "partner")
+
+    rt.store.update(mutate)
+    rt.apply(rt.store.current(), fetch=False)
+    c = rt.cfg
+    person_slug, token = c.people["alex"].slug, feed_token(c, "partner")
+    write_log(
+        rt,
+        f"fetched {FAKE_FEED}",
+        "fetched https://p01-caldav.icloud.com/published/2/FAKEICLOUD9876543210",
+        f"GET /a/{PARTNER_SLUG}/feed/{token}.ics and /p/{person_slug} and /a/{COWORKER_SLUG}",
+        f"key {c.server.secret_key} hashes {c.admin.password_hash} {c.audiences['partner'].password_hash}",
+        "MARKER-LOG-LINE",
+    )
+    # The shared redact() alone lets plain feed links and slugs through.
+    shared_only = diagnostics.redact(diagnostics.tail(str(support.log_file(rt.store.config_path))))
+    assert "FAKEFEED" in shared_only and PARTNER_SLUG in shared_only
+
+    sign_in(admin)
+    html = admin.get("/settings").text
+    text = support.diagnostics_text(c, rt.store.config_path, rt.store.env_path)
+    secrets = ["FAKEFEED", "FAKEICLOUD", PARTNER_SLUG, COWORKER_SLUG, person_slug, token, c.server.secret_key]
+    secrets += [c.admin.password_hash, c.audiences["partner"].password_hash]
+    for out in (html, text):
+        assert "MARKER-LOG-LINE" in out and "fetched ***" in out
+        for secret in secrets:
+            assert secret not in out
+
+
+def test_diagnostics_hide_notification_video_and_request_secrets(admin, rt):
+    """The logins and links added after 0.4.1: notifications, video calls, bookings, widgets,
+    sign-in tokens and each meeting request's status link."""
+    values = {
+        "topic": "ntfy-topic-SECRET-1111",
+        "ntoken": "tk_ntfy_SECRET_2222",
+        "smtp": "smtp-password-SECRET-3333",
+        "hook": "https://discord.com/api/webhooks/123/HOOKSECRET4444",
+        "zoom": "zoom-client-secret-SECRET-5555",
+        "webex": "webex-client-secret-SECRET-6666",
+        "booking": "booking-slug-SECRET-7777",
+        "widget": "widget-slug-SECRET-8888",
+        "meet": "https://zoom.us/j/MEETLINK9999",
+    }
+
+    def mutate(d):
+        notify = d.section("notify")
+        notify["ntfy"] = {"enabled": True, "topic": values["topic"], "token": values["ntoken"]}
+        notify["email"] = {"enabled": False, "smtp_host": "smtp.example.com", "password": values["smtp"]}
+        notify["discord"] = {"enabled": True, "webhook_url": values["hook"]}
+        video = d.section("video_calls")
+        video["zoom"] = {"client_id": "zoom-client-id-SECRET-0001", "client_secret": values["zoom"]}
+        video["webex"] = {"client_id": "webex-client-id-SECRET-0002", "client_secret": values["webex"]}
+        aud = d.audiences["partner"]
+        aud["requests"] = {"enabled": True, "booking": True, "booking_slug": values["booking"]}
+        aud["requests"]["meeting_link"] = values["meet"]
+        aud["widget"] = {"enabled": True, "slug": values["widget"]}
+
+    rt.store.update(mutate)
+    rt.apply(rt.store.current(), fetch=False)
+    sign_in_token = "ya29.SIGNIN-TOKEN-SECRET-abcdef"
+    accounts = rt.store.config_path.parent / conferencing.FILE
+    accounts.write_text(json.dumps({"google": {"refresh_token": sign_in_token}}), encoding="utf-8")
+    request_token = "REQUEST-STATUS-TOKEN-SECRET-123456"
+    write_log(rt, *values.values(), "zoom-client-id-SECRET-0001", sign_in_token, f"GET /r/{request_token}")
+    text = support.diagnostics_text(rt.cfg, rt.store.config_path, rt.store.env_path, 0, [request_token])
+    assert "SECRET" not in text and "MEETLINK" not in text and "HOOKSECRET" not in text
+    assert "GET /r/***" in text
+
+
+def test_diagnostics_scrub_spellings():
+    feed = "webcal://example.com/cal/SECRETPATH123.ics?k=1"
+    local = os.path.join(os.path.expanduser("~"), "cals", "private-file.ics")
+    text = diagnostics.redact(
+        "https://example.com/cal/SECRETPATH123.ics?k=1\n"  # webcal:// fetched as https://
+        "GET /cal/SECRETPATH123.ics?k=1\n"  # a request line has no host
+        "HTTPS://EXAMPLE.COM/cal/SECRETPATH123.ics?k=1\n"
+        f"read {local}\n"  # the home folder is already ~ by now
+        "public pages on port 8000"
+    )
+    out = support.scrub(text, support.secret_values(None, [feed, local, "8000", "", "http://[not-a-link"]))
+    assert "SECRETPATH" not in out and "private-file" not in out
+    assert "port 8000" in out  # too short to be a secret: a setting like a port stays readable
 
 
 # --- editing flows, live in the public app ---------------------------------------------------
