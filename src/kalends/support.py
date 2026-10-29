@@ -6,8 +6,9 @@ blanks anything that looks like ``password=...`` or a login inside a link. Kalen
 don't look like that: a calendar feed link or a share-link slug is just a long address or word.
 So after the report is made, every secret Kalends knows about is replaced with ``***`` by value:
 everything in ``.env``, every feed link, slug, password hash, key and token in the settings,
-the notification and video-call logins, the video-call sign-in tokens and each meeting
-request's private status link, in each spelling it could appear in.
+the notification and video-call logins, the video-call sign-in tokens, an unfinished Teams
+sign-in code and each meeting request's private status link, meeting link and meeting ID, in
+each spelling it could appear in.
 """
 
 from __future__ import annotations
@@ -76,6 +77,19 @@ def video_tokens(config_path: Path) -> list[str]:
     except (OSError, ValueError):
         return []
     return list(_strings(data))
+
+
+def private_values(requests: Iterable, video=None) -> list[str]:
+    """Secrets that live outside the settings: each meeting request's private status token, its
+    meeting link and the meeting's ID (for a Jitsi room the name is its only lock), and the code
+    of an unfinished Teams sign-in."""
+    found: list[str] = []
+    for r in requests:
+        found += [r.token, r.link, r.meeting_id]
+    pending = getattr(video, "pending_teams", None)
+    if pending:
+        found.append(pending.get("device_code") or "")
+    return [v for v in found if v]
 
 
 def secret_values(
