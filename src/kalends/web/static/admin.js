@@ -8,17 +8,38 @@
       // data-copy-from="<id>": copy that box's text (e.g. Settings > Diagnostics)
       var source = document.getElementById(btn.getAttribute("data-copy-from") || "");
       var text = source ? source.value : btn.getAttribute("data-copy");
-      var done = function () {
-        var label = btn.textContent;
-        btn.textContent = "Copied";
-        btn.classList.add("copied");
-        setTimeout(function () { btn.textContent = label; btn.classList.remove("copied"); }, 1600);
+      var label = btn.getAttribute("data-label") || btn.textContent;
+      btn.setAttribute("data-label", label);
+      var show = function (message, ok) {
+        btn.textContent = message;
+        btn.classList.toggle("copied", ok);
+        setTimeout(function () { btn.textContent = label; btn.classList.remove("copied"); }, ok ? 1600 : 4000);
+      };
+      // No clipboard API (plain http from another computer), or the browser refused it: copy the
+      // old way from a selected box. If even that is blocked, leave the text selected with a hint.
+      var fallback = function () {
+        var box = source || btn.parentElement.querySelector("input");
+        var temp = null;
+        if (!box) {
+          temp = document.createElement("textarea");
+          temp.value = text;
+          temp.setAttribute("readonly", "");
+          temp.style.position = "fixed";
+          temp.style.opacity = "0";
+          document.body.appendChild(temp);
+          box = temp;
+        }
+        box.focus();
+        box.select();
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+        if (temp) { temp.remove(); }
+        if (ok) { show("Copied", true); } else { show(temp ? "Couldn't copy" : "Selected: press Ctrl+C or \u2318C", false); }
       };
       if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(text).then(done);
+        navigator.clipboard.writeText(text).then(function () { show("Copied", true); }, fallback);
       } else {
-        var input = source || btn.parentElement.querySelector("input");
-        if (input) { input.select(); document.execCommand("copy"); done(); }
+        fallback();
       }
       return;
     }
