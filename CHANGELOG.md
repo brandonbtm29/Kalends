@@ -8,6 +8,8 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-29
+
 ### Fixed
 - **Diagnostics** also hides each meeting request's video link and meeting ID (a Jitsi room
   name is the meeting's only lock) and the code of a Teams sign-in that hasn't finished yet.
