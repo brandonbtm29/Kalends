@@ -218,6 +218,40 @@ def test_diagnostics_hide_notification_video_and_request_secrets(admin, rt):
     assert "GET /r/***" in text
 
 
+def test_diagnostics_hide_meeting_links_ids_and_teams_code(admin, rt):
+    """A confirmed request's meeting link and ID, and an unfinished Teams sign-in code, are
+    blanked on the page like the request's status link."""
+    item = rt.requests.add(
+        audience="coworkers",
+        person=None,
+        viewer="coworkers",
+        name="Dana",
+        email="d@x.edu",
+        note="hello",
+        kind="slot",
+        start="2026-10-27T10:00:00-04:00",
+        end="2026-10-27T10:30:00-04:00",
+        link="https://meet.jit.si/MEETROOM-SECRET-4321",
+        meeting_id="MEETROOM-SECRET-4321",
+    )
+    rt.kalends.video.pending_teams = {"device_code": "TEAMS-DEVICE-CODE-SECRET-5678", "user_code": "ABCD"}
+    write_log(
+        rt,
+        f"GET /r/{item.token}",
+        "Made a Jitsi meeting https://meet.jit.si/MEETROOM-SECRET-4321",
+        "Teams sign-in pending for TEAMS-DEVICE-CODE-SECRET-5678",
+    )
+    sign_in(admin)
+    html = admin.get("/settings").text
+    assert 'id="diagnostics-text"' in html
+    for secret in (item.token, "MEETROOM-SECRET", "TEAMS-DEVICE-CODE"):
+        assert secret not in html
+    values = support.private_values([item], rt.kalends.video)
+    assert item.token in values and "MEETROOM-SECRET-4321" in values
+    assert "TEAMS-DEVICE-CODE-SECRET-5678" in values
+    assert support.private_values([], None) == []
+
+
 def test_diagnostics_scrub_spellings():
     feed = "webcal://example.com/cal/SECRETPATH123.ics?k=1"
     local = os.path.join(os.path.expanduser("~"), "cals", "private-file.ics")

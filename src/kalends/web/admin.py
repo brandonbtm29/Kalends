@@ -1841,7 +1841,7 @@ def create_admin_app(rt: Runtime) -> FastAPI:
         states = rt.kalends.cache.states
         problems = sum(1 for cid in c.calendars if (st := states.get(cid)) and st.last_error)
         log_file = support.log_file(store.config_path)
-        tokens = [r.token for r in rt.requests.all()]
+        tokens = support.private_values(rt.requests.all(), getattr(rt.kalends, "video", None))
         return {
             "diagnostics": support.diagnostics_text(c, store.config_path, store.env_path, problems, tokens),
             "log_folder": log_file.parent,

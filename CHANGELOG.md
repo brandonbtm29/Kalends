@@ -8,6 +8,13 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+### Fixed
+- **Diagnostics** also hides each meeting request's video link and meeting ID (a Jitsi room
+  name is the meeting's only lock) and the code of a Teams sign-in that hasn't finished yet.
+- **Copy buttons** in the settings panel no longer fail silently when the browser blocks clipboard
+  access: they fall back to the older copy method, and if that's blocked too, they leave the text
+  selected and say "press Ctrl+C or ⌘C".
+
 ## [0.12.0] - 2026-10-28
 
 ### Added
