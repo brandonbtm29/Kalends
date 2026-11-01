@@ -8,15 +8,18 @@
     2. Stops a running Kalends from this folder, then installs/updates it in .venv
     3. Creates config.yaml + .env on first run (your settings are never overwritten)
     4. Starts Kalends automatically when you sign in, adds "Kalends settings" to the Start menu
-    5. Starts Kalends and opens the settings panel in your browser
+    5. Asks whether to put a Kalends shortcut on your desktop (an existing one is kept up to date)
+    6. Starts Kalends and opens the settings panel in your browser
+
+  -Shortcut / -NoShortcut answer question 5 in advance; -NoOpen starts Kalends without the browser.
 #>
-param([switch]$NoOpen)
+param([switch]$NoOpen, [switch]$Shortcut, [switch]$NoShortcut)
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $Root
 
 function Say($msg) { Write-Host "  $msg" }
-function Step($n, $msg) { Write-Host ""; Write-Host "[$n/5] $msg" -ForegroundColor Cyan }
+function Step($n, $msg) { Write-Host ""; Write-Host "[$n/6] $msg" -ForegroundColor Cyan }
 
 Write-Host ""
 Write-Host "  Kalends installer" -ForegroundColor White
@@ -109,8 +112,34 @@ Step 4 "Starting automatically when you sign in"
 & $kalends -c $config autostart on
 Say "Start menu: Kalends > Kalends settings"
 
-# --- 5. Start and open ------------------------------------------------------------------------
-Step 5 "Starting Kalends"
+# --- 5. Desktop shortcut ------------------------------------------------------------------------
+Step 5 "Desktop shortcut"
+$onDesktop = "$(& $kalends -c $config shortcut status)" -like "On:*"
+if ($onDesktop) {
+    # Keep it pointing at this folder (it may have been moved or renamed since).
+    & $kalends -c $config shortcut on | Out-Null
+    Say "Kept your Kalends desktop shortcut up to date."
+} else {
+    $onDesktop = $Shortcut.IsPresent
+    if (-not $onDesktop -and -not $NoShortcut -and -not [Console]::IsInputRedirected) {
+        $answer = Read-Host "  Add a Kalends shortcut to your desktop? [Y/n]"
+        $onDesktop = ($answer -eq "" -or $answer -match "^[Yy]")
+    }
+    if ($onDesktop) {
+        & $kalends -c $config shortcut on | Out-Null
+        $onDesktop = ($LASTEXITCODE -eq 0)
+        if ($onDesktop) {
+            Say "Added a Kalends shortcut to your desktop. It opens the settings panel."
+        } else {
+            Say "Couldn't add the desktop shortcut (see the message above). Kalends works without it."
+        }
+    } else {
+        Say "No desktop shortcut. To add one later, run Install Kalends again."
+    }
+}
+
+# --- 6. Start and open ------------------------------------------------------------------------
+Step 6 "Starting Kalends"
 if ($NoOpen) {
     Start-Process -FilePath (Join-Path $venv "Scripts\kalends-service.exe") -ArgumentList @("-c", "`"$config`"") -WorkingDirectory $Root -WindowStyle Hidden
     Say "Started in the background."
@@ -120,6 +149,10 @@ if ($NoOpen) {
 
 Write-Host ""
 Write-Host "  Done. Kalends is running in the background." -ForegroundColor Green
-Say "Settings: Start menu > Kalends > Kalends settings   (or http://127.0.0.1:8001)"
+if ($onDesktop) {
+    Say "Settings: the Kalends shortcut on your desktop, or Start menu > Kalends > Kalends settings"
+} else {
+    Say "Settings: Start menu > Kalends > Kalends settings   (or http://127.0.0.1:8001)"
+}
 Say "Logs:     $Root\logs\kalends.log"
 Say "To update later: get the new version into this folder and run Install Kalends again."

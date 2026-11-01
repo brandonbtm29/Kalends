@@ -6,3 +6,4 @@
 # Calendar files use CRLF line endings; store them byte-for-byte.
 *.ics      -text
 *.png      binary
+*.ico      binary

@@ -10,11 +10,16 @@ Windows shortcut doesn't need a separate supervisor.
 Kalends used to be called Glimpse. Installs from before the rename have a ``Glimpse.lnk``
 shortcut, an ``io.github.glimpse`` agent or a ``glimpse.service`` unit: those are still
 recognised, and on Windows they're swapped for the new names the next time Kalends starts.
+
+This module also makes the Kalends shortcut, a button that opens the settings panel (starting
+Kalends first if it isn't running): on the desktop on Windows, in ~/Applications on macOS and
+in the apps menu on Linux. The installers ask whether you want one.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -26,6 +31,8 @@ WIN_SHORTCUT = "Kalends.lnk"
 LEGACY_WIN_SHORTCUT = "Glimpse.lnk"
 UNIT = "kalends.service"
 LEGACY_UNIT = "glimpse.service"
+ICON = Path(__file__).parent / "web" / "static" / "kalends.ico"
+MAC_APP_ID = "io.github.kalends.open"
 
 
 @dataclass
@@ -56,6 +63,17 @@ def _service_command(config: Path) -> tuple[str, list[str]]:
     return str(exe), ["-c", str(config)]
 
 
+def _open_command(config: Path) -> tuple[str, list[str]]:
+    """What a shortcut runs: ``kalends-open`` (no console window), or python -m as a fallback."""
+    d = _scripts_dir()
+    names = [f"{n}.exe" if sys.platform == "win32" else n for n in ("kalends-open", "glimpse-open")]
+    exe = next((d / n for n in names if (d / n).exists()), None)
+    cfg = str(config.resolve())
+    if exe:
+        return str(exe), ["-c", cfg]
+    return sys.executable, ["-m", "kalends.service", "--open", "-c", cfg]
+
+
 # --- Windows ------------------------------------------------------------------------------
 
 
@@ -73,13 +91,16 @@ def _ps_quote(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
-def make_windows_shortcut(lnk: Path, target: str, args: str, workdir: str, description: str) -> None:
+def make_windows_shortcut(
+    lnk: Path, target: str, args: str, workdir: str, description: str, icon: str = ""
+) -> None:
     lnk.parent.mkdir(parents=True, exist_ok=True)
     script = (
         f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut({_ps_quote(str(lnk))}); "
         f"$s.TargetPath = {_ps_quote(target)}; $s.Arguments = {_ps_quote(args)}; "
         f"$s.WorkingDirectory = {_ps_quote(workdir)}; "
-        f"$s.Description = {_ps_quote(description)}; $s.WindowStyle = 7; $s.Save()"
+        + (f"$s.IconLocation = {_ps_quote(icon + ',0')}; " if icon else "")
+        + f"$s.Description = {_ps_quote(description)}; $s.WindowStyle = 7; $s.Save()"
     )
     subprocess.run(  # noqa: S603
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],  # noqa: S607
@@ -91,6 +112,24 @@ def make_windows_shortcut(lnk: Path, target: str, args: str, workdir: str, descr
 
 def _win_args(args: list[str]) -> str:
     return subprocess.list2cmdline(args)
+
+
+def _win_desktop_dir() -> Path:
+    """The Desktop folder, wherever Windows keeps it (OneDrive often moves it, for example)."""
+    try:
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(260)
+        # CSIDL_DESKTOPDIRECTORY = 0x10
+        if ctypes.windll.shell32.SHGetFolderPathW(None, 0x10, None, 0, buf) == 0 and buf.value:
+            return Path(buf.value)
+    except (AttributeError, OSError):
+        pass
+    return Path(os.environ.get("USERPROFILE") or Path.home()) / "Desktop"
+
+
+def _win_icon() -> str:
+    return str(ICON) if ICON.exists() else ""
 
 
 # --- macOS --------------------------------------------------------------------------------
@@ -230,15 +269,11 @@ def add_start_menu_entry(config: Path) -> Path | None:
     """Windows: Start menu → Kalends → "Kalends settings" (opens the panel, starting Kalends if needed)."""
     if sys.platform != "win32":
         return None
-    d = _scripts_dir()
-    exe = next((d / n for n in ("kalends-open.exe", "glimpse-open.exe") if (d / n).exists()), None)
-    target, args = (
-        (str(exe), ["-c", str(config.resolve())])
-        if exe
-        else (sys.executable, ["-m", "kalends.service", "--open", "-c", str(config.resolve())])
-    )
+    target, args = _open_command(config)
     lnk = _win_programs_dir() / "Kalends settings.lnk"
-    make_windows_shortcut(lnk, target, _win_args(args), str(config.resolve().parent), "Open Kalends settings")
+    make_windows_shortcut(
+        lnk, target, _win_args(args), str(config.resolve().parent), "Open Kalends settings", _win_icon()
+    )
     return lnk
 
 
@@ -265,3 +300,145 @@ def migrate_legacy(config: Path) -> list[str]:
             pass
         done.append("Start menu entry")
     return done
+
+
+# --- the Kalends shortcut -------------------------------------------------------------------
+
+
+@dataclass
+class ShortcutStatus:
+    supported: bool
+    enabled: bool
+    where: str = ""
+    detail: str = ""
+
+
+def _linux_apps_dir() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "applications"
+
+
+def shortcut_path() -> Path | None:
+    """Where the shortcut lives on this system (None where Kalends can't make one)."""
+    if sys.platform == "win32":
+        return _win_desktop_dir() / "Kalends.lnk"
+    if sys.platform == "darwin":
+        return Path.home() / "Applications" / "Kalends.app"
+    if sys.platform.startswith("linux"):
+        return _linux_apps_dir() / "kalends.desktop"
+    return None
+
+
+def shortcut_detail() -> str:
+    if sys.platform == "win32":
+        return "On your desktop"
+    if sys.platform == "darwin":
+        return "In your Applications folder (Launchpad and Spotlight find it too)"
+    if sys.platform.startswith("linux"):
+        return "In your apps menu"
+    return "Not supported on this system"
+
+
+def shortcut_status() -> ShortcutStatus:
+    p = shortcut_path()
+    if p is None:
+        return ShortcutStatus(False, False, "", shortcut_detail())
+    return ShortcutStatus(True, p.exists(), str(p), shortcut_detail())
+
+
+def _is_our_mac_app(app: Path) -> bool:
+    try:
+        return MAC_APP_ID in (app / "Contents" / "Info.plist").read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+
+def _mac_app_plist() -> str:
+    from . import __version__
+
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Kalends</string>
+  <key>CFBundleDisplayName</key><string>Kalends</string>
+  <key>CFBundleIdentifier</key><string>{MAC_APP_ID}</string>
+  <key>CFBundleExecutable</key><string>Kalends</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>{__version__}</string>
+  <key>LSUIElement</key><true/>
+</dict>
+</plist>
+"""
+
+
+def _write_mac_app(app: Path, exe: str, args: list[str]) -> None:
+    """A tiny app bundle whose only job is to run kalends-open (no Terminal window)."""
+    if app.exists() and not _is_our_mac_app(app):
+        raise FileExistsError(f"{app} already exists and isn't the Kalends shortcut")
+    macos = app / "Contents" / "MacOS"
+    macos.mkdir(parents=True, exist_ok=True)
+    (app / "Contents" / "Info.plist").write_text(_mac_app_plist(), encoding="utf-8")
+    launcher = macos / "Kalends"
+    cmd = " ".join(_sh_quote(a) for a in [exe, *args])
+    launcher.write_text(f"#!/bin/sh\nexec {cmd}\n", encoding="utf-8")
+    launcher.chmod(0o755)
+
+
+def _desktop_quote(arg: str) -> str:
+    """Quote one argument for the Exec= line of a .desktop file (freedesktop.org rules)."""
+    arg = arg.replace("%", "%%")
+    if arg and all(c.isalnum() or c in "/._-=:+,@%" for c in arg):
+        return arg
+    out = []
+    for c in arg:
+        if c == "\\":
+            out.append("\\" * 4)  # escaped once for the quoting, then again for the file
+        elif c in '"`$':
+            out.append("\\" * 2 + c)
+        else:
+            out.append(c)
+    return '"' + "".join(out) + '"'
+
+
+def _linux_desktop_entry(exe: str, args: list[str], workdir: Path) -> str:
+    cmd = " ".join(_desktop_quote(a) for a in [exe, *args])
+    return (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Kalends\n"
+        "Comment=Open Kalends settings\n"
+        f"Exec={cmd}\n"
+        f"Path={workdir}\n"
+        "Icon=x-office-calendar\n"
+        "Terminal=false\n"
+        "Categories=Office;Calendar;\n"
+    )
+
+
+def add_shortcut(config: Path) -> ShortcutStatus:
+    """Make the Kalends shortcut for this folder, or point an existing one back at it."""
+    p = shortcut_path()
+    if p is None:
+        return shortcut_status()
+    exe, args = _open_command(config)
+    workdir = config.resolve().parent
+    if sys.platform == "win32":
+        make_windows_shortcut(p, exe, _win_args(args), str(workdir), "Open Kalends", _win_icon())
+    elif sys.platform == "darwin":
+        _write_mac_app(p, exe, args)
+    else:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(_linux_desktop_entry(exe, args, workdir), encoding="utf-8")
+        p.chmod(0o755)  # some desktops only trust launchers that are marked executable
+    return shortcut_status()
+
+
+def remove_shortcut() -> ShortcutStatus:
+    p = shortcut_path()
+    if p is not None and p.exists():
+        if sys.platform == "darwin":
+            if _is_our_mac_app(p):  # never delete someone else's app
+                shutil.rmtree(p)
+        else:
+            p.unlink()
+    return shortcut_status()

@@ -11,6 +11,8 @@ cache/
 *.bak
 *.tmp
 logs/
+# update backups hold copies of config.yaml and .env
+/backups/
 
 # --- Python ---
 __pycache__/

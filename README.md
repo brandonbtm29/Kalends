@@ -126,7 +126,7 @@ git clone https://github.com/brandonbtm29/Kalends.git
 | **macOS** | Right-click **`Install Kalends.command`** → *Open* (only the first time; after that a double-click works). |
 | **Linux** | Run `./scripts/unix/install.sh` |
 
-The installer needs no administrator rights. It installs Python 3.12 for you if it's missing (Windows, with your OK), sets everything up in the folder, makes Kalends start automatically when you sign in, adds **Kalends settings** to the Start menu (Windows), and opens your browser.
+The installer needs no administrator rights. It installs Python 3.12 for you if it's missing (Windows, with your OK), sets everything up in the folder, makes Kalends start automatically when you sign in, adds **Kalends settings** to the Start menu (Windows), asks whether you'd like a **Kalends shortcut** that opens the settings panel (on the desktop on Windows, in Applications on macOS, in the apps menu on Linux), and opens your browser. Running the installer again keeps an existing shortcut pointing at the right folder.
 
 ### 3. Finish in the browser
 
@@ -150,7 +150,8 @@ Releases only ever move forward through tagged versions; unreleased work on `mai
 ### Optional extras
 
 - **Start even before anyone signs in (Windows):** if the PC sometimes reboots and sits at the sign-in screen, run `scripts\windows\start-before-login.ps1` from an administrator PowerShell.
-- **Turn it off:** `scripts\windows\uninstall.ps1` (Windows) or `.venv/bin/kalends autostart off` (macOS/Linux) stops Kalends and its auto-start; your files stay put.
+- **Turn it off:** `scripts\windows\uninstall.ps1` (Windows) stops Kalends and its auto-start and removes its shortcuts; on macOS/Linux, `.venv/bin/kalends autostart off` and `.venv/bin/kalends shortcut off` do the same. Your files stay put.
+- **Install without questions:** `Install Kalends.cmd -Shortcut` or `-NoShortcut` (Windows), or `KALENDS_SHORTCUT=yes` / `no` before `./scripts/unix/install.sh` (macOS/Linux), answers the shortcut question in advance.
 - **Prefer a terminal?** Everything the installer and the This computer page do is also a `kalends` command (below).
 
 ### Getting your feed links
@@ -272,6 +273,7 @@ Run these from the Kalends folder as `.venv\Scripts\kalends …` (Windows) or `.
 | `kalends service` | run in the background, logging to `logs/kalends.log` (what auto-start runs) |
 | `kalends serve` | run in this window, printing to the screen; `--no-admin` skips the panel |
 | `kalends autostart on\|off\|status` | start automatically when you sign in |
+| `kalends shortcut on\|off\|status` | a shortcut that opens the settings panel: on the desktop (Windows), in Applications (macOS) or in the apps menu (Linux) |
 | `kalends init [--setup-later]` | create `config.yaml` + `.env` for a fresh setup |
 | `kalends admin-password` | set or reset the settings-panel password |
 | `kalends set-base-url URL` | set the public address used in share links |
@@ -294,6 +296,7 @@ All commands take `-c path/to/config.yaml` (default `./config.yaml`) and `-e pat
 - The calendar-subscription link works without the password (calendar apps can't sign in), so treat it like the password, or turn subscriptions off for that audience.
 - Forgot the admin password? On the host, run `kalends admin-password`.
 - Something not working? Check `logs/kalends.log` in the Kalends folder. It never contains your feed links.
+- Moved or renamed the Kalends folder? Run **Install Kalends** again from its new place. Until you do, Kalends can't find its own files and won't start; the installer fixes that and points the auto-start and shortcuts at the new folder.
 - Reporting a problem? **Settings → Diagnostics** shows your version, install, system and the last 50 log lines, with calendar links, share links, passwords, keys and sign-in tokens replaced by ***. Press **Copy** and paste it into a [GitHub issue](https://github.com/brandonbtm29/Kalends/issues) or an email.
 - Testing over plain `http://127.0.0.1` works in Chrome and Edge. If another browser keeps returning you to a login page, it's refusing the secure cookie over plain http; use the `https://…ts.net` address instead.
 

@@ -247,6 +247,28 @@ def cmd_autostart(args: argparse.Namespace) -> None:
     print(("On: " if st.enabled else "Off: ") + st.detail + (f" ({st.where})" if st.enabled else ""))
 
 
+def cmd_shortcut(args: argparse.Namespace) -> None:
+    import subprocess
+
+    from . import autostart
+
+    try:
+        if args.action == "on":
+            st = autostart.add_shortcut(args.config)
+        elif args.action == "off":
+            st = autostart.remove_shortcut()
+        else:
+            st = autostart.shortcut_status()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"Couldn't change the Kalends shortcut: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if not st.supported:
+        print("Kalends can't make a shortcut on this system.")
+        sys.exit(1)
+    # The installers read the "On:" / "Off:" prefix.
+    print(("On: " if st.enabled else "Off: ") + st.detail + (f" ({st.where})" if st.enabled else ""))
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # its INFO lines would print feed URLs
@@ -278,6 +300,10 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("autostart", help="start Kalends automatically when you sign in")
     s.add_argument("action", choices=["on", "off", "status"])
     s.set_defaults(fn=cmd_autostart)
+
+    s = sub.add_parser("shortcut", help="add or remove the Kalends shortcut that opens the settings panel")
+    s.add_argument("action", choices=["on", "off", "status"])
+    s.set_defaults(fn=cmd_shortcut)
 
     s = sub.add_parser("set-base-url", help="set the public address used in share links")
     s.add_argument("url")

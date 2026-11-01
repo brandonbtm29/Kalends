@@ -82,7 +82,7 @@ def fake_windows(tmp_path, monkeypatch):
         (scripts / exe).write_text("")
     made = []
 
-    def shortcut(lnk, target, args, workdir, description):
+    def shortcut(lnk, target, args, workdir, description, icon=""):
         lnk.parent.mkdir(parents=True, exist_ok=True)
         lnk.write_text(f"{target} {args}")
         made.append(lnk.name)

@@ -8,6 +8,21 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+### Added
+- **A Kalends shortcut.** The installer now asks whether you'd like one: on your desktop
+  (Windows), in your Applications folder (macOS) or in your apps menu (Linux). It opens the
+  settings panel, starting Kalends first if it isn't running. Running the installer again keeps
+  an existing shortcut pointing at the right folder, even after the folder is moved or renamed.
+  `kalends shortcut on|off|status` adds or removes it any time, and `-Shortcut` / `-NoShortcut`
+  (Windows) or `KALENDS_SHORTCUT=yes|no` (macOS/Linux) answers the question in advance.
+- On Windows, the desktop shortcut and the Start menu entry use the Kalends icon.
+
+### Fixed
+- The `backups/` folder that updates make (it holds copies of `config.yaml` and `.env`) is now
+  ignored by git, so it can't be committed by accident.
+- The README now says what to do after moving or renaming the Kalends folder: run the installer
+  again.
+
 ## [0.12.1] - 2026-10-29
 
 ### Fixed
