@@ -8,6 +8,8 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-01
+
 ### Added
 - **A Kalends shortcut.** The installer now asks whether you'd like one: on your desktop
   (Windows), in your Applications folder (macOS) or in your apps menu (Linux). It opens the
@@ -22,6 +24,8 @@ notes come from the matching section below.
   ignored by git, so it can't be committed by accident.
 - The README now says what to do after moving or renaming the Kalends folder: run the installer
   again.
+- Running the test suite on Windows no longer overwrites the Start menu's **Kalends settings**
+  shortcut with a broken file.
 
 ## [0.12.1] - 2026-10-29
 
@@ -277,9 +281,21 @@ notes come from the matching section below.
 - `#private` and `#hide` tags and Outlook/Google private events respected for everyone.
 - Week page for desktop and phone, Excel download, and a subscribe-able filtered ICS feed.
 
-[Unreleased]: https://github.com/brandonbtm29/Glimpse/compare/v0.4.0...HEAD
-[0.4.0]: https://github.com/brandonbtm29/Glimpse/compare/v0.3.1...v0.4.0
-[0.3.1]: https://github.com/brandonbtm29/Glimpse/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/brandonbtm29/Glimpse/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/brandonbtm29/Glimpse/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/brandonbtm29/Glimpse/releases/tag/v0.1.0
+[Unreleased]: https://github.com/brandonbtm29/Kalends/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/brandonbtm29/Kalends/compare/v0.12.1...v0.13.0
+[0.12.1]: https://github.com/brandonbtm29/Kalends/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/brandonbtm29/Kalends/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/brandonbtm29/Kalends/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/brandonbtm29/Kalends/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/brandonbtm29/Kalends/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/brandonbtm29/Kalends/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/brandonbtm29/Kalends/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/brandonbtm29/Kalends/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/brandonbtm29/Kalends/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/brandonbtm29/Kalends/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/brandonbtm29/Kalends/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/brandonbtm29/Kalends/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/brandonbtm29/Kalends/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/brandonbtm29/Kalends/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/brandonbtm29/Kalends/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/brandonbtm29/Kalends/releases/tag/v0.1.0
