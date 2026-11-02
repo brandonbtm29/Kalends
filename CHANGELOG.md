@@ -8,6 +8,40 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-02
+
+### Added
+- **School calendars on a web page.** Schools that don't offer a calendar feed, like the University
+  of Akron, can now be read from the registrar's page with the table of dates. Kalends reads
+  tables with a Term column, a heading or a row per term, and one column per academic year
+  ("2026-2027") or term ("Fall 2026"), with dates written in all the usual ways ("Oct 12-18, 2026",
+  "Mar 1-Mar 7, 2027", "8/24/2026", "Monday, August 24"). Rows without a date yet ("TBD",
+  "Mid-March") are skipped until the school fills them in.
+- **Smarter reading of terms**, for feeds and pages alike: shorter sessions inside a term (a
+  1st 8-week session and its exams) no longer start a new term or show as finals week; holidays
+  on which classes are held (such as a staff-only Veterans Day) no longer pause your classes;
+  "University closed" days are marked as closed; "Start of term", "sessions begin" and "Final
+  instructional day" are understood; and break names are tidied ("Thanksgiving recess" rather
+  than "Thanksgiving recess beginning at 4:00pm on Wednesday").
+- **Typo correction.** When a column says which academic year it's for and a date's year is one
+  off (a Summer 2027 deadline typed as 2026), Kalends uses the right year and says so.
+- **What Kalends read**, on the School page: every date from the school's calendar, what it was
+  used for (term starts, break, campus closed, exam week, shorter session, classes held...), and
+  the typos it corrected. **Ignore** leaves a row out, in every year; **Use again** brings it back.
+- **Changes are noticed.** When the school moves a date, adds a year or drops one, the School page
+  and the Overview say what changed ("Spring 2027: Spring recess now Mar 15–21, 2027 (was
+  Mar 22–28, 2027)") until you press **Got it**, and a notification goes out if you've set one up.
+  Terms that are over are kept after they drop off the school's page. Web pages are checked every
+  few hours, since they don't say when they've changed.
+- If the school's page is briefly broken (maintenance, a redesign), Kalends keeps using what it read
+  before instead of losing your terms, and tells you. A PDF link gets a clear message.
+
+### Fixed
+- After saving something on a page section (such as **Terms** on the School page), the panel now
+  scrolls back to that section and shows the "Saved" message.
+- A settings-panel test about rule previews no longer fails once the test calendar's week is in
+  the past.
+
 ## [0.13.0] - 2026-11-01
 
 ### Added
@@ -281,7 +315,8 @@ notes come from the matching section below.
 - `#private` and `#hide` tags and Outlook/Google private events respected for everyone.
 - Week page for desktop and phone, Excel download, and a subscribe-able filtered ICS feed.
 
-[Unreleased]: https://github.com/brandonbtm29/Kalends/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/brandonbtm29/Kalends/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/brandonbtm29/Kalends/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/brandonbtm29/Kalends/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/brandonbtm29/Kalends/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/brandonbtm29/Kalends/compare/v0.11.0...v0.12.0

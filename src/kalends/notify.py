@@ -34,6 +34,15 @@ class Note:
     tags: str = "calendar"  # ntfy emoji tags
 
 
+def panel_address(cfg: AppConfig) -> str:
+    """Where the settings panel is, for links in notifications."""
+    n = cfg.notify
+    if n.panel_url:
+        return n.panel_url.rstrip("/")
+    base = cfg.server.base_url.rstrip("/")
+    return f"{base}:8443" if base.startswith("https://") and base.count(":") == 1 else "http://127.0.0.1:8001"
+
+
 @dataclass
 class ChannelResult:
     ok: bool

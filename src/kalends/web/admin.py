@@ -57,7 +57,7 @@ from ..policy import rule_matches
 from ..render.periods import build_heat, build_month
 from ..render.week import PALETTE_SIZE, build_week, fmt_day, fmt_range, fmt_time
 from ..requests_store import MeetingRequest
-from ..school import read_feed
+from ..school import check_link, fmt_span
 from ..sources import USER_AGENT, normalize_url
 from ..store import Draft, _env_name, finish_setup
 from .app import COMMON_ZONES, VIEW_LABELS
@@ -452,8 +452,9 @@ def create_admin_app(rt: Runtime) -> FastAPI:
         return RedirectResponse("/login", status_code=303)
 
     def done(path: str, flash: str) -> RedirectResponse:
+        path, hash_, frag = path.partition("#")  # the flash goes before any #section
         sep = "&" if "?" in path else "?"
-        return RedirectResponse(f"{path}{sep}ok={flash}", status_code=303)
+        return RedirectResponse(f"{path}{sep}ok={flash}{hash_}{frag}", status_code=303)
 
     async def checked_form(request: Request) -> tuple[dict | None, Any]:
         """Session + parsed form, or (None, None) if not signed in or the CSRF token is wrong."""
@@ -857,6 +858,9 @@ def create_admin_app(rt: Runtime) -> FastAPI:
                 "support_note": all(st["done"] for st in steps)
                 and rt.seen.get("ui:support-note-dismissed") is None,
                 "support_url": f"https://github.com/{c.updates.repo}#support",
+                "school_change": rt.kalends.school.memory.latest()
+                if c.school.enabled and c.school.calendar_url
+                else None,
             },
             sess,
         )
@@ -2542,6 +2546,8 @@ def create_admin_app(rt: Runtime) -> FastAPI:
         sc = rt.kalends.school
         sched = sc.schedule
         today = rt.kalends.today()
+        reading = sc.reading if cfg().school.calendar_url else None
+        change = sc.memory.latest() if reading else None
         return page(
             request,
             "admin/school.html",
@@ -2552,12 +2558,50 @@ def create_admin_app(rt: Runtime) -> FastAPI:
                 "today_label": sched.label(today) if cfg().school.enabled else None,
                 "feed_error": sc.last_error,
                 "feed_ok": sc.last_success.astimezone(cfg().tz) if sc.last_success else None,
+                "reading": reading,
+                "review": school_review(reading) if reading else [],
+                "change": change,
+                "change_when": change["when"].astimezone(cfg().tz) if change and change.get("when") else None,
+                "fmt_span": fmt_span,
                 "test": test,
                 "error": error,
             },
             sess,
             status,
         )
+
+    ROLE_TEXT = {
+        "start": "Term starts",
+        "end": "Term ends",
+        "exams": "Exam week",
+        "break": "Break",
+        "closed": "Campus closed",
+        "shorter session": "Shorter session (not used)",
+        "classes held": "Classes held (not a day off)",
+        "between terms": "Between terms",
+        "no date": "No date given",
+        "ignored": "Ignored",
+        "": "",
+    }
+
+    def school_review(reading) -> list[dict]:
+        """Rows grouped by term for the 'Everything Kalends read' table."""
+        out: list[dict] = []
+        by: dict[str, dict] = {}
+        for r in reading.rows:
+            head = r.term or " · ".join(x for x in (r.group, r.column) if x) or "Other dates"
+            if head not in by:
+                by[head] = {"head": head, "rows": []}
+                out.append(by[head])
+            by[head]["rows"].append(
+                {
+                    "row": r,
+                    "when": fmt_span(r.first, r.last) if r.first else r.raw or "—",
+                    "role": ROLE_TEXT.get(r.role, r.role),
+                    "used": r.role in ("start", "end", "exams", "break", "closed"),
+                }
+            )
+        return out
 
     @app.get("/school", response_class=HTMLResponse)
     def school(request: Request):
@@ -2599,7 +2643,7 @@ def create_admin_app(rt: Runtime) -> FastAPI:
 
     def school_fetch() -> None:
         with httpx.Client(timeout=20.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as c:
-            rt.kalends.school.refresh(c)
+            rt.check_school(c, force=True)
 
     @app.post("/school/test", response_class=HTMLResponse)
     async def school_test(request: Request):
@@ -2607,22 +2651,47 @@ def create_admin_app(rt: Runtime) -> FastAPI:
         if not sess:
             return to_login()
         url = normalize_url(str(form.get("calendar_url", "")).strip())
-        result = await run_in_threadpool(test_feed, url, cfg())
-        if result.get("ok"):
 
-            def detect() -> list:
-                with httpx.Client(
-                    timeout=20.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
-                ) as c:
-                    text = c.get(url).text
-                return read_feed(text, cfg())
+        def check() -> dict:
+            with httpx.Client(timeout=20.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as c:
+                return check_link(url, c, cfg())
 
-            try:
-                result["terms"] = await run_in_threadpool(detect)
-            except Exception as exc:  # noqa: BLE001 - show any problem on the page
-                result["terms"] = []
-                result["detect_error"] = type(exc).__name__
+        result = await run_in_threadpool(check)
         return school_page(request, sess, test={"url": url, **result})
+
+    @app.post("/school/ignore")
+    async def school_ignore(request: Request):
+        """Leave one row of the school's calendar out (in every year), or use it again."""
+        sess, form = await checked_form(request)
+        if not sess:
+            return to_login()
+        key = re.sub(r"\s+", " ", str(form.get("key", ""))).strip()[:300]
+        use = form.get("action") == "use"
+        reading = rt.kalends.school.reading
+        if not key or (not use and not (reading and any(r.ignore_key == key for r in reading.rows))):
+            return RedirectResponse("/school?review=open#review", status_code=303)
+
+        def mutate(d: Draft) -> None:
+            node = d.section("school")
+            ignore = [x for x in (node.get("ignore") or []) if x != key]
+            if not use:
+                ignore.append(key)
+            if ignore:
+                node["ignore"] = ignore
+            else:
+                node.pop("ignore", None)
+
+        await save(mutate)
+        return done("/school?review=open#review", "saved")
+
+    @app.post("/school/changes/seen")
+    async def school_changes_seen(request: Request):
+        sess, form = await checked_form(request)
+        if not sess:
+            return to_login()
+        rt.kalends.school.memory.dismiss()
+        back = "/" if form.get("back") == "/" else "/school"
+        return RedirectResponse(back, status_code=303)
 
     def _term_dates(form, prefix: str = "") -> tuple[str, str, str] | None:
         name = str(form.get(f"{prefix}name", "")).strip()[:40]

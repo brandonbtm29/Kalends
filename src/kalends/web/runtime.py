@@ -10,8 +10,9 @@ import httpx
 from .. import conferencing
 from ..config import AppConfig, ConfigError
 from ..core import Kalends
-from ..notify import Notifier
+from ..notify import Note, Notifier, panel_address
 from ..requests_store import RequestStore
+from ..school import SchoolMemory
 from ..sources import USER_AGENT
 from ..store import ConfigStore
 from ..updates import UpdateChecker
@@ -29,6 +30,9 @@ class Runtime:
         self.notifier = Notifier(lambda: self.cfg)
         self.kalends.video = conferencing.VideoCalls(
             lambda: self.cfg, store.config_path.parent / conferencing.FILE if store else None
+        )
+        self.kalends.use_school_memory(
+            SchoolMemory(store.config_path.parent / SchoolMemory.FILE if store else None)
         )
         self.updates = UpdateChecker(
             state_path=store.config_path.parent / "logs" / "update-check.json" if store else None
@@ -83,7 +87,21 @@ class Runtime:
                 if cid in cache.config.calendars:
                     cache.refresh(cid, c)
             if calendar_ids is None:
-                self.kalends.school.refresh(c)
+                self.check_school(c)
+
+    def check_school(self, client: httpx.Client, force: bool = False) -> None:
+        """Re-read the school's calendar, and say so when the school changed it."""
+        school = self.kalends.school
+        school.refresh(client, force=force)
+        lines, school.new_changes = school.new_changes, []
+        if not lines:
+            return
+        who = self.cfg.school.name
+        title = f"{who}: academic calendar changed" if who else "Your school's academic calendar changed"
+        body = "\n".join(lines[:8]) + (f"\n…and {len(lines) - 8} more" if len(lines) > 8 else "")
+        self.notifier.owner(
+            Note(title=title, body=body, url=f"{panel_address(self.cfg)}/school", tags="mortar_board")
+        )
 
     async def refresh_loop(self) -> None:
         while True:

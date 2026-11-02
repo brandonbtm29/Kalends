@@ -46,7 +46,7 @@ It runs on your own computer. Raw calendar data never leaves it; only already-fi
 - **A new Zoom, Teams, Google Meet, Webex or Jitsi Meet meeting for every booking**: the person booking picks from the services you offer, each confirmed meeting gets its own link (shared only once it's confirmed), and cancelling deletes it. Or just use one fixed link.
 - **Notifications on your phone, by email or in Discord**: switch on any mix of the three to hear about new requests right away.
 - **Website widget**: a small free/busy view of the next few days (no titles) for a lab, course or personal site, with an optional "Request a meeting" button. It has its own link and you choose which sites may embed it.
-- **School mode**: tell Kalends your semesters (typed in, or read from your school's academic calendar feed). Viewers see "Fall 2026 · Week 7" and break days, and class events pause over breaks and between terms.
+- **School mode**: tell Kalends your semesters (typed in, or read from your school's academic calendar: a calendar feed, or the web page with its table of dates). Viewers see "Fall 2026 · Week 7" and break days, class events pause over breaks and between terms, and Kalends tells you when the school changes its dates.
 - **Excel download** of any visible week or month (works on phones too), and a **subscribe-able ICS feed** so viewers can add your (filtered) schedule to their own calendar app.
 - Recurring events, moved/cancelled instances, all-day and overnight events, and daylight-saving changes all handled.
 - **One double-click install** on Windows and macOS, then a guided setup in the browser. No administrator rights needed.
@@ -245,7 +245,13 @@ It shows busy blocks for the next days (no titles, no calendar names) in the vis
 
 ### School mode
 
-On **School**, switch it on and either paste your school's academic calendar feed (if it publishes one) or type in each term's first and last day, then its breaks and exam weeks. Kalends reads terms from a feed by looking for events like "Classes begin", "Last day of classes", "Thanksgiving break" and "Final exams"; check what it found, and use **Copy these so I can edit them** to fix anything. Typed-in terms always win.
+On **School**, switch it on and paste the link to your school's academic calendar, or type in each term's first and last day, then its breaks and exam weeks. The link can be a calendar feed (.ics or webcal://) or, if that's all your school publishes, the web page with its table of dates (for example the University of Akron's registrar page). **Check link** shows what Kalends would read before you save.
+
+Kalends works out the terms from names like "Start of term", "Classes begin", "Last day of classes", "Thanksgiving recess", "University closed" and "Final examinations". It understands tables with a Term column, a heading or a row per term, and one column per academic year ("2026-2027") or term ("Fall 2026"). Shorter sessions inside a term (a 1st 8-week session and its exams) don't change the term, a holiday on which "classes are held" isn't treated as a day off, and a year that's obviously one off (a Spring 2027 date typed as 2026) is corrected and flagged.
+
+**What Kalends read** lists every date it found and what it used it for. If one is wrong for you, **Ignore** it and Kalends works the terms out without it, in every year. Use **Copy these so I can edit them** to turn the terms into typed-in ones you can edit; typed-in terms always win.
+
+Kalends checks the calendar for changes (web pages every few hours, since they don't say when they change). When the school moves a date or adds a new year, the School page and the Overview say what changed, and you get a notification if you've set one up on **Notifications**. Terms that are over stay known after they drop off the school's page. What it read last is kept in `school-state.json` beside your config.
 
 Then tick the calendars that hold your classes. During breaks and between terms their events are hidden (handy when a class series runs straight through Thanksgiving), and viewers see the term, the week number and break days. Untick **Show viewers** to keep the term info to yourself.
 

@@ -666,7 +666,7 @@ def test_terms_are_read_from_an_academic_calendar(cfg):
     fall, spring = terms
     assert fall.start == date(2026, 8, 24) and fall.end == date(2026, 12, 12)
     kinds = {(p.name, p.kind) for p in fall.periods}
-    assert ("Fall Break", "break") in kinds and ("Labor Day - No Classes", "break") in kinds
+    assert ("Fall Break", "break") in kinds and ("Labor Day", "break") in kinds
     assert ("Finals", "exams") in kinds
     assert spring.end == date(2027, 5, 7) and spring.periods[0].name.startswith("Spring Break")
 

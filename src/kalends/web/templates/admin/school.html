@@ -55,6 +55,19 @@
   {% if today_label %}<span class="status ok">Today: {{ today_label }}</span>{% endif %}
 </header>
 
+{% if change %}
+<section class="notice" id="changes">
+  <p><strong>{{ sc.name or 'Your school' }} changed its academic calendar</strong>{% if change_when %} <span class="muted">(noticed {{ fmt_day(change_when.date()) }}, {{ fmt_time(change_when) }})</span>{% endif %}. The terms below already use the new dates.</p>
+  <ul class="change-lines">
+    {% for line in change.lines %}<li>{{ line }}</li>{% endfor %}
+  </ul>
+  <form method="post" action="/school/changes/seen" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secondary small">Got it</button>
+  </form>
+</section>
+{% endif %}
+
 <form method="post" action="/school" class="form">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="rev" value="{{ rev }}">
@@ -64,21 +77,28 @@
   </section>
 
   <section class="panel">
-    <h2>Academic calendar link <span class="muted small">(optional)</span></h2>
-    <p class="muted">If your school publishes its academic calendar as a calendar feed (an .ics or webcal:// link, often behind &ldquo;Subscribe&rdquo; or &ldquo;Add to calendar&rdquo; on the academic calendar page), paste it here. Kalends reads the terms and breaks from it and keeps them up to date. Every school words things differently, so check what it finds below, and type in anything it misses.</p>
+    <h2>Academic calendar <span class="muted small">(optional)</span></h2>
+    <p class="muted">Paste the link to your school's academic calendar. That can be a calendar feed (an .ics or webcal:// link, often behind &ldquo;Subscribe&rdquo; or &ldquo;Add to calendar&rdquo;), or the web page with the table of dates if that's all your school publishes. Kalends reads the terms, breaks and exam weeks from it, checks it for changes (web pages every few hours) and tells you when the school updates it.</p>
     <div class="copyrow">
       <input type="url" name="calendar_url" value="{{ test.url if test and test.ok else '' }}" placeholder="{{ 'Saved: ' ~ mask_url(sc.calendar_url) if sc.calendar_url else 'https://… or webcal://…' }}" spellcheck="false" aria-label="Academic calendar link">
       <button type="submit" formaction="/school/test" class="secondary small">Check link</button>
     </div>
     {% if sc.calendar_url %}
-    <p class="hint">{% if feed_error %}Last check failed: {{ feed_error }}{% elif feed_ok %}Checked {{ fmt_day(feed_ok.date()) }}, {{ fmt_time(feed_ok) }}.{% else %}Not checked yet.{% endif %}</p>
+    <p class="hint">{% if feed_error %}Last check failed: {{ feed_error }}{% elif feed_ok %}Checked {{ fmt_day(feed_ok.date()) }}, {{ fmt_time(feed_ok) }}{% if reading %}: {{ 'a web page' if reading.kind == 'page' else 'a calendar feed' }}{% if reading.title %} (&ldquo;{{ reading.title }}&rdquo;){% endif %} with {{ reading.rows | length }} date{{ '' if reading.rows | length == 1 else 's' }}{% endif %}.{% else %}Not checked yet.{% endif %}</p>
     <label class="check"><input type="checkbox" name="clear_url"> Stop using this link</label>
     {% endif %}
     {% if test %}
     <div class="testresult">
       {% if test.ok %}
-      <p><strong>That link works</strong>{% if test.name %} ({{ test.name }}){% endif %}. It found {{ test.terms | length }} term{{ '' if test.terms | length == 1 else 's' }}:</p>
-      {% if test.terms %}{{ term_rows(test.terms, false) }}{% else %}<p class="muted">No terms recognised. Kalends looks for events like &ldquo;Classes begin&rdquo; and &ldquo;Last day of classes&rdquo;. You can still type terms in below.</p>{% endif %}
+      <p><strong>That link works</strong>: {{ 'a web page' if test.kind == 'page' else 'a calendar feed' }}{% if test.name %} (&ldquo;{{ test.name }}&rdquo;){% endif %} with {{ test.rows }} date{{ '' if test.rows == 1 else 's' }}. It found {{ test.terms | length }} term{{ '' if test.terms | length == 1 else 's' }}:</p>
+      {% if test.terms %}{{ term_rows(test.terms, false) }}{% else %}<p class="muted">No terms recognised. Kalends looks for things like &ldquo;Start of term&rdquo;, &ldquo;Classes begin&rdquo;, &ldquo;Last day of classes&rdquo; and &ldquo;Final examinations&rdquo;. You can still type terms in below.</p>{% endif %}
+      {% if test.fixed %}
+      <p class="hint">Kalends corrected {{ test.fixed | length }} likely typo{{ '' if test.fixed | length == 1 else 's' }} in the school's years:</p>
+      <ul class="change-lines small">
+        {% for r in test.fixed %}<li>{{ r.title }}{% if r.column %} ({{ r.column }}){% endif %}: it says {{ r.fixed_from }}, Kalends uses {{ fmt_span(r.first, r.last) }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% if test.undated %}<p class="hint">{{ test.undated }} row{{ '' if test.undated == 1 else 's' }} had no date yet (like &ldquo;TBD&rdquo;), so Kalends skips {{ 'it' if test.undated == 1 else 'them' }} until the school fills {{ 'it' if test.undated == 1 else 'them' }} in.</p>{% endif %}
       <p class="hint">Press <strong>Save school settings</strong> to use it.</p>
       {% else %}
       <p class="error">{{ test.error }}</p>
@@ -120,7 +140,7 @@
   <form method="post" action="/school/copy-detected" class="inline-form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <button type="submit" class="secondary small">Copy these so I can edit them</button>
-    <span class="hint">Typed-in terms take priority over the feed for the same dates.</span>
+    <span class="hint">Typed-in terms take priority over the school's calendar for the same dates. To leave out a single holiday or break instead, ignore it under <a href="#review">What Kalends read</a>.</span>
   </form>
   {% endif %}
   {% if not sched.terms %}<p class="muted">No terms yet. Add one below, or paste your academic calendar link above.</p>{% endif %}
@@ -136,4 +156,56 @@
     </form>
   </details>
 </section>
+
+{% if reading %}
+<section class="panel" id="review">
+  <h2>What Kalends read</h2>
+  {% set used = reading.rows | selectattr('role', 'in', ['start', 'end', 'exams', 'break', 'closed']) | list %}
+  {% set ignored = reading.rows | selectattr('role', 'equalto', 'ignored') | list %}
+  <p class="muted">{{ reading.rows | length }} date{{ '' if reading.rows | length == 1 else 's' }} from {{ 'the page' if reading.kind == 'page' else 'the feed' }}. {{ used | length }} of them shape the terms (when they start and end, breaks, closed days and finals); the rest, like add and drop deadlines, are listed for reference. If one is wrong for you, ignore it and Kalends works the terms out without it, every year.</p>
+  {% if reading.fixed %}
+  <div class="notice subtle">
+    <p><strong>Corrected {{ reading.fixed | length }} likely typo{{ '' if reading.fixed | length == 1 else 's' }}</strong> in the school's years:</p>
+    <ul class="change-lines">
+      {% for r in reading.fixed %}<li>{{ r.title }}{% if r.group %}, {{ r.group }}{% endif %}{% if r.column %} ({{ r.column }}){% endif %}: the page says {{ r.fixed_from }}; Kalends uses {{ fmt_span(r.first, r.last) }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if ignored %}<p class="hint">You're ignoring {{ ignored | length }} date{{ '' if ignored | length == 1 else 's' }}; they're marked below.</p>{% endif %}
+  <details class="help"{% if request.query_params.get('review') == 'open' %} open{% endif %}>
+    <summary>Every date ({{ reading.rows | length }})</summary>
+    {% for g in review %}
+    <h3 class="small-head">{{ g.head }}</h3>
+    <div class="table-wrap">
+    <table class="table compact review">
+      <thead><tr><th>Event</th><th>When</th><th>Used as</th><th><span class="sr-only">Ignore</span></th></tr></thead>
+      <tbody>
+        {% for x in g.rows %}
+        <tr class="{{ 'used' if x.used }}{{ ' ignored' if x.row.role == 'ignored' }}">
+          <td>{{ x.row.title }}{% if x.row.career %} <span class="muted small">{{ x.row.career }}</span>{% endif %}{% if x.row.fixed_from %} <span class="kind kind-closed" title="The page says {{ x.row.fixed_from }}">typo fixed</span>{% endif %}</td>
+          <td class="nowrap">{{ x.when }}</td>
+          <td>{% if x.used %}<span class="kind{{ ' kind-' ~ x.row.role if x.row.role in ('exams', 'closed', 'break') else '' }}">{{ x.role }}</span>{% else %}<span class="muted">{{ x.role }}</span>{% endif %}</td>
+          <td class="nowrap">
+            {% if x.row.first or x.row.role == 'ignored' %}
+            <form method="post" action="/school/ignore" class="inline-form">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="key" value="{{ x.row.ignore_key }}">
+              {% if x.row.role == 'ignored' %}
+              <input type="hidden" name="action" value="use">
+              <button type="submit" class="link small">Use again</button>
+              {% else %}
+              <button type="submit" class="link small" title="Leave this out, in every year">Ignore</button>
+              {% endif %}
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endfor %}
+  </details>
+</section>
+{% endif %}
 {% endblock %}

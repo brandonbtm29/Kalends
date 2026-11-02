@@ -10,7 +10,7 @@ from .conferencing import VideoCalls
 from .config import ALL_WEEKS, AppConfig, AudienceCfg
 from .events import Event, collect_events
 from .policy import VisibleEvent, visible_events
-from .school import SchoolCalendar
+from .school import SchoolCalendar, SchoolMemory
 from .sources import FeedCache
 
 
@@ -57,8 +57,15 @@ class Kalends:
         self.cache = cache or FeedCache(cfg)
         self._events: OrderedDict[tuple, list[Event]] = OrderedDict()
         self.generation = 0
-        self.school = SchoolCalendar(cfg)
+        self.school_memory = SchoolMemory(None)  # the runtime swaps in one kept beside the config
+        self.school = SchoolCalendar(cfg, self.school_memory, lambda: self.today())
         self.video = VideoCalls(lambda: self.cfg)  # the runtime swaps in one that saves sign-ins
+
+    def use_school_memory(self, memory: SchoolMemory) -> None:
+        old = self.school
+        self.school_memory = memory
+        self.school = SchoolCalendar(self.cfg, memory, lambda: self.today())
+        self.school.carry_over(old)
 
     def apply(self, new_cfg: AppConfig) -> list[str]:
         """Switch to a new config without a restart.
@@ -78,11 +85,8 @@ class Kalends:
                 changed.append(cid)
         old_school = self.school
         self.cfg, self.cache = new_cfg, cache
-        self.school = SchoolCalendar(new_cfg)
-        if old_school.text and new_cfg.school.calendar_url == old_school.cfg.school.calendar_url:
-            self.school.etag = old_school.etag
-            self.school.last_success = old_school.last_success
-            self.school._set_text(old_school.text)
+        self.school = SchoolCalendar(new_cfg, self.school_memory, lambda: self.today())
+        self.school.carry_over(old_school)
         self.generation += 1
         self._events.clear()
         return changed

@@ -743,8 +743,10 @@ class SchoolCfg(_Strict):
 
     enabled: bool = False
     name: str | None = None  # e.g. "University of Akron"
-    calendar_url: str | None = None  # the school's academic calendar feed; terms are read from it
+    # the school's academic calendar: a feed (.ics) or a web page with a table of dates
+    calendar_url: str | None = None
     terms: list[TermCfg] = Field(default_factory=list)  # typed in by hand; these win over the feed
+    ignore: list[str] = Field(default_factory=list)  # rows of the school's calendar to leave out
     class_calendars: list[str] = Field(default_factory=list)  # calendars with your classes
     pause_classes: bool = True  # hide class events during breaks and between terms
     show_viewers: bool = True  # viewers see "Fall 2026 · Week 7" and break days
@@ -753,6 +755,16 @@ class SchoolCfg(_Strict):
     @classmethod
     def _blank(cls, v: str | None) -> str | None:
         return _blank_none(v)
+
+    @field_validator("ignore")
+    @classmethod
+    def _ignore(cls, v: list[str]) -> list[str]:
+        out: list[str] = []
+        for item in v:
+            item = re.sub(r"\s+", " ", str(item)).strip()[:300]
+            if item and item not in out:
+                out.append(item)
+        return out[:500]
 
 
 @dataclass(frozen=True)

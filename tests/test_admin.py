@@ -448,6 +448,7 @@ def test_group_create_and_set_level(admin, rt):
 
 
 def test_rules_page_add_test_and_delete(admin, rt):
+    rt.kalends.today = lambda: WEEK  # the preview shows upcoming weeks; pin them to the fixtures' week
     c = sign_in(admin)
     assert "Add your first rule" in admin.get("/rules").text
     form = {

@@ -40,6 +40,11 @@
 </section>
 {% endif %}
 
+{% if school_change %}
+<div class="notice">
+  <p><strong>{{ cfg.school.name or 'Your school' }} changed its academic calendar.</strong> {{ school_change.lines[0] }}{% if school_change.lines | length > 1 %} and {{ school_change.lines | length - 1 }} more change{{ '' if school_change.lines | length == 2 else 's' }}{% endif %}. <a href="/school#changes">See what changed</a></p>
+</div>
+{% endif %}
 {% if pending_requests %}
 <p class="notice"><a href="/requests">{{ pending_requests }} meeting request{{ '' if pending_requests == 1 else 's' }}</a> waiting for your answer.</p>
 {% endif %}
