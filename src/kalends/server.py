@@ -72,6 +72,7 @@ def run(
                     seen=rt.seen,
                     requests=rt.requests,
                     notifier=rt.notifier,
+                    alerts=rt.alerts,
                 ),
                 host=host,
                 port=port,
@@ -98,10 +99,12 @@ def run(
 
     async def main() -> None:
         refresher = asyncio.create_task(rt.refresh_loop())
+        alerter = asyncio.create_task(rt.alerts_loop())
         try:
             await asyncio.gather(*(s.serve() for s in servers))
         finally:
             refresher.cancel()
+            alerter.cancel()
             rt.seen.flush()
 
     asyncio.run(main())

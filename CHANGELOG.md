@@ -8,6 +8,41 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-17
+
+### Added
+- **Notifications for much more than meeting requests**, each switched on and routed on its own:
+  - **Event reminders** a few minutes before your events (you pick how long, and which calendars).
+  - A **morning summary** of the day's events at a time you choose.
+  - **Calendar problems**: a calendar that hasn't updated for an hour (adjustable), comes back with
+    no events, or is fine again.
+  - **Link activity**: the first time a link is opened or added to a calendar app, a person's link
+    about to end, and too many wrong passwords on a link.
+  - **Calendar changes**: events added, moved or cancelled on calendars you pick, such as ones
+    other people edit.
+- **What goes where**: a table on the Notifications page decides which kinds of message go to your
+  phone, browser, email and Discord.
+- **Browser notifications**, for you and for people you share with. They work in any modern
+  browser, including iPhone and iPad from a Home Screen bookmark, and are encrypted so only that
+  browser can read them. Kalends makes its signing key itself and keeps it in `.env`.
+- **Alerts for the people you share with.** An audience's new **Alerts** tab lets its viewers turn
+  on alerts from a **Get alerts** link at the bottom of its pages: when plans change and before
+  events start, by browser notification, email (after they confirm their address) or the ntfy
+  app. Alerts show only what that audience can see, in the viewer's own time zone, and every alert
+  links to a page to change or stop it. The Alerts tab lists who has them and can stop any of them.
+- Shared pages and the settings panel can be added to a phone's Home Screen as an app.
+
+### Changed
+- **Notifications** moved from Meetings to Settings, since it now covers everything.
+- Making a new link, changing the password or switching alerts off stops the alerts turned on
+  through the old link; a person's alerts stop when their link ends.
+- Update backups now also include `school-state.json`, `alerts.json` and `alerts-state.json`.
+
+### Notes
+- New dependency: `cryptography` (for encrypting browser notifications). Updating installs it.
+- A calendar that suddenly comes back empty is reported as a problem, and nobody is told its
+  events were cancelled.
+
 ## [0.14.0] - 2026-11-02
 
 ### Added
@@ -315,7 +350,8 @@ notes come from the matching section below.
 - `#private` and `#hide` tags and Outlook/Google private events respected for everyone.
 - Week page for desktop and phone, Excel download, and a subscribe-able filtered ICS feed.
 
-[Unreleased]: https://github.com/brandonbtm29/Kalends/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/brandonbtm29/Kalends/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/brandonbtm29/Kalends/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/brandonbtm29/Kalends/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/brandonbtm29/Kalends/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/brandonbtm29/Kalends/compare/v0.12.0...v0.12.1

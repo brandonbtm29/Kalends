@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Alerts · {{ aud.title }}{% endblock %}
+{% block body %}
+<main class="page req-page">
+  <div class="welcome">
+    <svg class="logo" viewBox="0 0 32 32" width="34" height="34" aria-hidden="true"><rect x="3" y="5" width="26" height="24" rx="5" fill="#3b6fd8"/><rect x="3" y="5" width="26" height="7" rx="3" fill="#2a55b0"/><circle cx="16" cy="20" r="4" fill="#fff"/></svg>
+    <div>
+      <p class="hello">Get alerts{% if owner_first %} from {{ owner_first }}'s calendar{% endif %}</p>
+      <p class="whose">{{ aud.title }}{% if person %} · for {{ person }}{% endif %}</p>
+    </div>
+  </div>
+  <p class="backlink"><a href="{{ base }}">&#8249; Back to the schedule</a></p>
+
+  {% if sent_to %}
+  <div class="req-message" role="status"><strong>Check your email.</strong> We sent a link to {{ sent_to }}; open it to turn the alerts on. Nothing is sent until you do.</div>
+  {% endif %}
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+  <p class="muted">Alerts only ever tell you what you can already see on this page{% if aud.default.value == 'busy' %}, so mostly when {{ owner_first ~ ' is' if owner_first else "they're" }} busy{% endif %}. You can change or stop them any time from a link in each one.</p>
+
+  {% if full %}
+  <p class="error">There are already as many alerts on this link as it allows.</p>
+  {% else %}
+  <form method="post" action="{{ base }}/alerts" class="req-form">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="tz" value="{{ values.tz or '' }}" data-tz>
+    <h2>What to tell you</h2>
+    <div class="req-fields">
+      {% if a.changes %}
+      <label class="check wide"><input type="checkbox" name="changes" {% if values.changes != '' or not values %}checked{% endif %}> When plans change: something added, moved or cancelled in the next {{ a.days_ahead }} days</label>
+      {% endif %}
+      {% if a.reminders %}
+      <label class="check wide"><input type="checkbox" name="reminders" {% if values.reminders == 'on' %}checked{% endif %}> Before events start</label>
+      <label>How long before
+        <select name="lead">
+          {% for m, label in leads.items() %}<option value="{{ m }}" {% if (values.lead or '30') == m|string %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+    </div>
+
+    <h2>How</h2>
+    {% if vapid %}
+    <div class="alert-way" data-push data-key="{{ vapid }}" data-post="{{ base }}/alerts/push" data-token="{{ token }}">
+      <h3>Notifications on this device</h3>
+      <p class="small muted">Straight to this phone or computer, encrypted so only this browser can read them. On iPhone and iPad, add this page to your Home Screen first (Share › Add to Home Screen) and open it from there.</p>
+      <button type="button" data-push-on>Turn on notifications here</button>
+      <a href="#" data-push-manage hidden>Alerts are already on in this browser: change them</a>
+      <p class="small" data-push-status role="status"></p>
+    </div>
+    {% endif %}
+    {% if email_ok %}
+    <div class="alert-way">
+      <h3>Email</h3>
+      <div class="req-fields">
+        <label class="wide">Your email <input type="email" name="email" value="{{ values.email or '' }}" maxlength="120" autocomplete="email"></label>
+      </div>
+      <button type="submit" name="channel" value="email" class="secondary">Email me a link to confirm</button>
+    </div>
+    {% endif %}
+    {% if ntfy_ok %}
+    <div class="alert-way">
+      <h3>The ntfy app</h3>
+      <p class="small muted">Free for iPhone and Android, no account needed. Kalends makes a private topic for you and shows you how to add it.</p>
+      <button type="submit" name="channel" value="ntfy" class="secondary">Get alerts in ntfy</button>
+    </div>
+    {% endif %}
+    {% if not (vapid or email_ok or ntfy_ok) %}<p class="muted">No way of sending alerts is set up yet.</p>{% endif %}
+    <label class="hp" aria-hidden="true">Leave this empty <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+  </form>
+  {% endif %}
+</main>
+<script src="/static/alerts.js?v={{ version }}" defer></script>
+<script src="/static/viewer.js?v={{ version }}" defer></script>
+{% endblock %}

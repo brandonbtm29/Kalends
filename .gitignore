@@ -6,6 +6,8 @@
 /local-calendars/
 /video-accounts.json
 /school-state.json
+/alerts.json
+/alerts-state.json
 .env.local
 cache/
 *.ics.cache

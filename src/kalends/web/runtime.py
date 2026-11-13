@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 
 import httpx
 
-from .. import conferencing
+from .. import conferencing, webpush
+from ..alerts import Alerts
 from ..config import AppConfig, ConfigError
 from ..core import Kalends
 from ..notify import Note, Notifier, panel_address
@@ -33,6 +35,14 @@ class Runtime:
         )
         self.kalends.use_school_memory(
             SchoolMemory(store.config_path.parent / SchoolMemory.FILE if store else None)
+        )
+        self._key_lock = threading.Lock()
+        self.alerts = Alerts(
+            lambda: self.cfg,
+            lambda: self.kalends,
+            self.notifier,
+            store.config_path.parent if store else None,
+            self._vapid_key if store else None,
         )
         self.updates = UpdateChecker(
             state_path=store.config_path.parent / "logs" / "update-check.json" if store else None
@@ -76,8 +86,29 @@ class Runtime:
         """Make a freshly saved config live, and fetch any new/changed feeds now."""
         changed = self.kalends.apply(cfg)
         self._stamp = self._file_stamp()
+        self.alerts.prune(cfg)  # a new link or password stops the alerts made through the old one
         if fetch and changed:
             self.refresh(changed)
+
+    def _vapid_key(self) -> str:
+        """Kalends' key for browser notifications, made (and saved in .env) the first time."""
+        with self._key_lock:
+            key = self.cfg.notify.webpush.vapid_private_key
+            if key:
+                return key
+            key = webpush.new_private_key()
+            assert self.store is not None
+
+            def mutate(d) -> None:
+                d.set_secret(
+                    d.section("notify").setdefault("webpush", {}),
+                    "vapid_private_key",
+                    key,
+                    "KALENDS_VAPID_KEY",
+                )
+
+            self.apply(self.store.update(mutate), fetch=False)
+            return key
 
     def refresh(self, calendar_ids: list[str] | None = None) -> None:
         cache = self.kalends.cache
@@ -88,6 +119,8 @@ class Runtime:
                     cache.refresh(cid, c)
             if calendar_ids is None:
                 self.check_school(c)
+        if calendar_ids is None:
+            self.alerts.after_refresh()
 
     def check_school(self, client: httpx.Client, force: bool = False) -> None:
         """Re-read the school's calendar, and say so when the school changed it."""
@@ -102,6 +135,15 @@ class Runtime:
         self.notifier.owner(
             Note(title=title, body=body, url=f"{panel_address(self.cfg)}/school", tags="mortar_board")
         )
+
+    async def alerts_loop(self, every: float = 30) -> None:
+        """Reminders and the morning summary need a finer clock than calendar refreshes."""
+        while True:
+            try:
+                await asyncio.to_thread(self.alerts.tick)
+            except Exception:
+                log.exception("alerts tick failed")
+            await asyncio.sleep(every)
 
     async def refresh_loop(self) -> None:
         while True:

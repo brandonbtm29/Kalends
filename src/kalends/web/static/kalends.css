@@ -369,3 +369,14 @@ a.dchip:hover { border-color: var(--accent); }
 .evdlg-notes { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line); white-space: pre-wrap; font-size: 14px; overflow-wrap: anywhere; max-height: 50vh; overflow: auto; }
 .req-status .join { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .req-status .join .small { font-size: 12px; overflow-wrap: anywhere; }
+
+/* Alerts */
+.alert-way { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin: 0 0 12px; }
+.alert-way h3 { font-size: 15px; margin: 0 0 4px; }
+.alert-way .small, .req-form .small { font-size: 13px; }
+.alert-way button { margin-top: 6px; }
+.req-fields .check { flex-direction: row; align-items: center; gap: 8px; }
+.req-form code.topic { font-size: 14px; padding: 2px 6px; background: var(--bg); border-radius: 6px; user-select: all; }
+.req-form ol { padding-left: 20px; }
+.req-form .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.req-form h2:not(:first-of-type) { margin-top: 16px; }

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Your alerts · {{ aud.title }}{% endblock %}
+{% block body %}
+<main class="page req-page">
+  <div class="welcome">
+    <svg class="logo" viewBox="0 0 32 32" width="34" height="34" aria-hidden="true"><rect x="3" y="5" width="26" height="24" rx="5" fill="#3b6fd8"/><rect x="3" y="5" width="26" height="7" rx="3" fill="#2a55b0"/><circle cx="16" cy="20" r="4" fill="#fff"/></svg>
+    <div>
+      <p class="hello">Your alerts</p>
+      <p class="whose">{{ aud.title }}</p>
+    </div>
+  </div>
+  {% if sub.page %}<p class="backlink"><a href="{{ sub.page }}">&#8249; Open the schedule</a></p>{% endif %}
+  {% if done %}<div class="req-message" role="status">{{ done }}</div>{% endif %}
+
+  {% if sub.channel == 'email' and not sub.confirmed %}
+  <form method="post" class="req-form">
+    <h2>Turn on alerts for {{ sub.email }}?</h2>
+    <p class="small muted">Someone (hopefully you) asked for alerts about {{ aud.title }} to be sent here.</p>
+    <div class="actions">
+      <button type="submit" name="action" value="confirm">Yes, turn them on</button>
+      <button type="submit" name="action" value="stop" class="secondary">No, forget this address</button>
+    </div>
+  </form>
+  {% else %}
+
+  {% if sub.channel == 'ntfy' %}
+  <div class="req-form">
+    <h2>{% if new %}One more step: add your topic in ntfy{% else %}Your ntfy topic{% endif %}</h2>
+    <ol class="small">
+      <li>Install <strong>ntfy</strong> from the App Store or Google Play.</li>
+      <li>Tap <strong>+</strong> (Subscribe to topic) and enter: <code class="topic">{{ sub.topic }}</code></li>
+      {% if ntfy_server != 'https://ntfy.sh' %}<li>Turn on <strong>Use another server</strong> and enter <code>{{ ntfy_server }}</code>.</li>{% endif %}
+    </ol>
+    <p class="small muted">Keep the topic to yourself: anyone who knows it can read these alerts. Or open <a href="{{ ntfy_server }}/{{ sub.topic }}" target="_blank" rel="noopener">your topic in the browser</a>.</p>
+  </div>
+  {% endif %}
+
+  <form method="post" class="req-form">
+    <h2>What to tell you</h2>
+    <p class="small muted">Sent {{ {'webpush': 'as notifications on ' ~ sub.label, 'email': 'by email to ' ~ (sub.email or ''), 'ntfy': 'to the ntfy app'}[sub.channel] }}.</p>
+    <div class="req-fields">
+      {% if a.changes %}<label class="check wide"><input type="checkbox" name="changes" {% if sub.changes %}checked{% endif %}> When plans change (next {{ a.days_ahead }} days)</label>{% endif %}
+      {% if a.reminders %}
+      <label class="check wide"><input type="checkbox" name="reminders" {% if sub.reminders %}checked{% endif %}> Before events start</label>
+      <label>How long before
+        <select name="lead">
+          {% for m, label in leads.items() %}<option value="{{ m }}" {% if (sub.lead or 30) == m %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+    </div>
+    <div class="actions">
+      <button type="submit" name="action" value="save">Save</button>
+      <button type="submit" name="action" value="stop" class="secondary">Stop these alerts</button>
+    </div>
+  </form>
+  {% endif %}
+</main>
+{% endblock %}

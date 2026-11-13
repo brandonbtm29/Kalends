@@ -20,6 +20,7 @@
     {% if freshness %}<span>{{ freshness }}</span>{% endif %}
     {% if excel_url %}<a class="dl" href="{{ excel_url }}" download>{{ excel_label or 'Download as Excel' }}</a>{% endif %}
     {% if ics_url %}<a href="{{ ics_url }}" title="Copy this link and add it in your calendar app as a subscription">Subscribe in your calendar app</a>{% endif %}
+    {% if alerts_url %}<a href="{{ alerts_url }}">Get alerts</a>{% endif %}
     {% if has_password %}<a href="{{ base }}/logout">Sign out</a>{% endif %}
   </div>
 </footer>

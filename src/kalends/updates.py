@@ -227,6 +227,9 @@ def backup_settings(config_path: Path, env_path: Path) -> Path:
         config_path.with_name("state.json"),
         config_path.with_name("requests.json"),
         config_path.with_name("video-accounts.json"),
+        config_path.with_name("school-state.json"),
+        config_path.with_name("alerts.json"),
+        config_path.with_name("alerts-state.json"),
     ):
         if src.is_file():
             shutil.copy2(src, dest / src.name)

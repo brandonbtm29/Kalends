@@ -46,8 +46,9 @@ def test_each_page_shows_its_sections_tabs(panel):
         "/school": ["/calendars", "/my-calendars", "/school"],
         "/people": ["/sharing", "/people", "/rules", "/preview"],
         "/preview": ["/sharing", "/people", "/rules", "/preview"],
-        "/video-calls": ["/requests", "/video-calls", "/notifications"],
-        "/setup": ["/settings", "/setup"],
+        "/video-calls": ["/requests", "/video-calls"],
+        "/notifications": ["/settings", "/notifications", "/setup"],  # moved under Settings in 0.15
+        "/setup": ["/settings", "/notifications", "/setup"],
     }
     for path, want in expect.items():
         html = c.get(path).text

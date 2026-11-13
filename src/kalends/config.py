@@ -385,6 +385,18 @@ class WidgetCfg(_Strict):
         return out
 
 
+class AlertsCfg(_Strict):
+    """Alerts people can turn on from an audience's page, about what that audience can see."""
+
+    enabled: bool = False
+    changes: bool = True  # events added, moved or cancelled
+    reminders: bool = True  # before events start
+    days_ahead: int = Field(default=14, ge=1, le=60)
+    channels: list[Literal["webpush", "email", "ntfy"]] = Field(
+        default_factory=lambda: ["webpush", "email", "ntfy"]
+    )
+
+
 class AudienceCfg(_Strict):
     title: str = "Schedule"
     slug: str
@@ -406,6 +418,7 @@ class AudienceCfg(_Strict):
     default_view: ViewName = "week"
     requests: RequestsCfg = Field(default_factory=RequestsCfg)
     widget: WidgetCfg = Field(default_factory=WidgetCfg)
+    alerts: AlertsCfg = Field(default_factory=AlertsCfg)
     # Your own view: every calendar in full, no privacy rules or tags, no hours limit. Made
     # automatically; it stays locked until it has a password.
     self_view: bool = False
@@ -451,6 +464,7 @@ class AudienceCfg(_Strict):
             self.shared_link = True
             self.requests = RequestsCfg()
             self.widget = WidgetCfg()
+            self.alerts = AlertsCfg()  # you get your own notifications instead
         return self
 
 
@@ -597,16 +611,98 @@ class DiscordCfg(_Strict):
         return v
 
 
+class WebPushCfg(_Strict):
+    """Browser notifications. The signing key is made on first use and kept in .env."""
+
+    vapid_private_key: str | None = None  # keep in .env
+
+    @field_validator("vapid_private_key")
+    @classmethod
+    def _blank(cls, v: str | None) -> str | None:
+        return _blank_none(v)
+
+
+# What Kalends can tell you about, and the ways it can reach you.
+NOTE_KINDS = ("requests", "school", "reminders", "summary", "problems", "activity", "changes")
+NOTE_CHANNELS = ("ntfy", "webpush", "email", "discord")
+_QUIET = ("ntfy", "webpush")  # reminders and the morning summary aren't emailed or posted by default
+
+
+def _default_routes() -> dict[str, list[str]]:
+    special = {"reminders": list(_QUIET), "summary": [*_QUIET, "email"]}
+    return {k: special.get(k, list(NOTE_CHANNELS)) for k in NOTE_KINDS}
+
+
+class RemindersCfg(_Strict):
+    """A heads-up shortly before your own events."""
+
+    enabled: bool = False
+    minutes: int = Field(default=10, ge=0, le=1440)
+    calendars: list[str] = Field(default_factory=list)  # empty = every calendar
+
+
+class SummaryCfg(_Strict):
+    """A morning list of the day's events."""
+
+    enabled: bool = False
+    at: time = time(7, 30)
+    calendars: list[str] = Field(default_factory=list)  # empty = every calendar
+    skip_empty: bool = True  # no message on days with nothing on
+
+
+class ProblemsCfg(_Strict):
+    """When a calendar stops updating, comes back empty, and when it's fine again."""
+
+    enabled: bool = True
+    after_minutes: int = Field(default=60, ge=10, le=7 * 24 * 60)
+
+
+class ActivityCfg(_Strict):
+    """Things people do with your links."""
+
+    enabled: bool = True
+    first_open: bool = True  # someone opens a link (or adds its subscription) for the first time
+    expiring_days: int = Field(default=3, ge=0, le=60)  # warn this many days before a person's link ends
+    lockouts: bool = True  # too many wrong passwords on a link
+
+
+class ChangesCfg(_Strict):
+    """Events added, moved or cancelled on calendars you choose (ones other people edit)."""
+
+    calendars: list[str] = Field(default_factory=list)
+    days_ahead: int = Field(default=14, ge=1, le=90)
+
+
 class NotifyCfg(_Strict):
     ntfy: NtfyCfg = Field(default_factory=NtfyCfg)
     email: EmailCfg = Field(default_factory=EmailCfg)
     discord: DiscordCfg = Field(default_factory=DiscordCfg)
+    webpush: WebPushCfg = Field(default_factory=WebPushCfg)
     panel_url: str | None = None  # link in notifications; defaults to the tailnet panel address
+    routes: dict[str, list[str]] = Field(default_factory=_default_routes)  # which ways each kind goes
+    reminders: RemindersCfg = Field(default_factory=RemindersCfg)
+    summary: SummaryCfg = Field(default_factory=SummaryCfg)
+    problems: ProblemsCfg = Field(default_factory=ProblemsCfg)
+    activity: ActivityCfg = Field(default_factory=ActivityCfg)
+    changes: ChangesCfg = Field(default_factory=ChangesCfg)
 
     @field_validator("panel_url")
     @classmethod
     def _blank(cls, v: str | None) -> str | None:
         return _blank_none(v)
+
+    @field_validator("routes")
+    @classmethod
+    def _routes(cls, v: dict[str, list[str]]) -> dict[str, list[str]]:
+        out = _default_routes()
+        for kind, chans in (v or {}).items():
+            if kind not in NOTE_KINDS:
+                raise ValueError(f"notify.routes: unknown kind {kind!r} (known: {', '.join(NOTE_KINDS)})")
+            bad = [c for c in chans or [] if c not in NOTE_CHANNELS]
+            if bad:
+                raise ValueError(f"notify.routes.{kind}: unknown channel {bad[0]!r}")
+            out[kind] = [c for c in NOTE_CHANNELS if c in (chans or [])]
+        return out
 
 
 class ZoomCfg(_Strict):
@@ -863,6 +959,9 @@ class AppConfig(_Strict):
                 if cal.share_slug in slugs:
                     raise ValueError(f"calendar {cid!r} has the same share link as {slugs[cal.share_slug]!r}")
                 slugs[cal.share_slug] = f"{cid} share"
+        n = self.notify  # calendars that were removed quietly drop out of notification settings
+        for part in (n.reminders, n.summary, n.changes):
+            part.calendars = [cid for cid in part.calendars if cid in self.calendars]
         for aid, aud in self.audiences.items():
             r = aud.requests
             if r.calendar and (r.calendar not in self.calendars or not self.calendars[r.calendar].local):

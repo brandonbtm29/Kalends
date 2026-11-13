@@ -1,8 +1,9 @@
-"""Tell you (and requesters) about meeting requests: phone push, email, Discord.
+"""Tell you (and the people you share with) things: phone push, browser, email, Discord.
 
-Each channel can be switched on or off on its own in the settings panel. Sending
-happens in a background thread so a slow mail server never holds up a page, and the
-last result of each channel is kept for the panel to show.
+Each channel can be switched on or off on its own in the settings panel, and each kind of
+message (meeting requests, reminders, calendar problems...) goes only to the channels you
+picked for it. Sending happens in a background thread so a slow mail server never holds up
+a page, and the last result of each channel is kept for the panel to show.
 """
 
 from __future__ import annotations
@@ -19,11 +20,11 @@ from email.utils import formataddr, make_msgid
 
 import httpx
 
-from .config import AppConfig, EmailCfg
+from .config import NOTE_CHANNELS, AppConfig, EmailCfg
 from .sources import USER_AGENT
 
 log = logging.getLogger("kalends.notify")
-CHANNELS = ("ntfy", "email", "discord")
+CHANNELS = NOTE_CHANNELS  # ntfy, webpush (browser), email, discord
 
 
 @dataclass
@@ -32,6 +33,8 @@ class Note:
     body: str
     url: str | None = None  # where to act on it (the settings panel)
     tags: str = "calendar"  # ntfy emoji tags
+    kind: str = "requests"  # which setting decides where it goes (notify.routes)
+    urgent: bool = False  # reminders: delivered straight away, even to a sleeping phone
 
 
 def panel_address(cfg: AppConfig) -> str:
@@ -121,6 +124,10 @@ class Notifier:
         self._cfg = cfg_getter  # a function, so saved settings apply without a restart
         self.last: dict[str, ChannelResult] = {}
         self._lock = threading.Lock()
+        # Browser notifications are sent by the alerts engine, which knows your browsers:
+        # push(note) -> detail (raises when none could be reached); has_push() -> any browsers?
+        self.push = None
+        self.has_push = lambda: False
 
     @property
     def cfg(self) -> AppConfig:
@@ -135,7 +142,19 @@ class Notifier:
             out.append("email")
         if n.discord.enabled and n.discord.webhook_url:
             out.append("discord")
-        return out
+        if self.push is not None and self.has_push():
+            out.append("webpush")
+        return [c for c in CHANNELS if c in out]
+
+    def routed(self, kind: str) -> list[str]:
+        """The channels that are on and picked for this kind of message."""
+        wanted = self.cfg.notify.routes.get(kind, list(CHANNELS))
+        return [c for c in self.enabled() if c in wanted]
+
+    def can_email(self) -> bool:
+        """Can Kalends send email at all (for people who asked for alerts by email)?"""
+        e = self.cfg.notify.email
+        return e.enabled and bool(e.smtp_host and e.sender)
 
     def can_email_requesters(self) -> bool:
         e = self.cfg.notify.email
@@ -144,8 +163,25 @@ class Notifier:
     # -- sending ---------------------------------------------------------------------------
 
     def owner(self, note: Note, wait: bool = False) -> None:
-        """Send to every channel that's switched on."""
-        self._run(lambda: [self.send(ch, note) for ch in self.enabled()], wait)
+        """Send to every channel that's switched on and picked for this kind of message."""
+        self._run(lambda: [self.send(ch, note) for ch in self.routed(note.kind)], wait)
+
+    def email_to(self, to: str, subject: str, body: str, headers: dict[str, str] | None = None) -> str:
+        """Email someone who asked for alerts (not recorded as your channel's last result)."""
+        if not self.can_email():
+            raise ValueError("email isn't set up")
+        return self._email(to, subject, body, None, record=False, headers=headers)
+
+    def ntfy_to(self, server: str, topic: str, note: Note) -> str:
+        """Push to someone else's ntfy topic (alerts for the people you share with)."""
+        headers = {"Title": _header(note.title), "Tags": note.tags, "User-Agent": USER_AGENT}
+        if note.url:
+            headers["Click"] = note.url
+        if note.urgent:
+            headers["Priority"] = "high"
+        r = httpx.post(f"{server}/{topic}", content=note.body.encode("utf-8"), headers=headers, timeout=15)
+        r.raise_for_status()
+        return "Sent"
 
     def requester(self, to: str, subject: str, body: str, ics: str | None = None, wait: bool = False) -> None:
         if not to or not self.can_email_requesters():
@@ -164,6 +200,10 @@ class Notifier:
                     raise ValueError("no address to send to")
                 body = note.body + (f"\n\nOpen Kalends: {note.url}" if note.url else "")
                 detail = self._email(to, note.title, body, None)
+            elif channel == "webpush":
+                if self.push is None:
+                    raise ValueError("browser notifications aren't available")
+                detail = self.push(note)
             else:
                 raise ValueError(channel)
             res = ChannelResult(True, detail, datetime.now(UTC))
@@ -187,6 +227,8 @@ class Notifier:
             headers["Click"] = note.url
         if n.token:
             headers["Authorization"] = f"Bearer {n.token}"
+        if note.urgent:
+            headers["Priority"] = "high"
         r = httpx.post(
             f"{n.server}/{n.topic}", content=note.body.encode("utf-8"), headers=headers, timeout=15
         )
@@ -203,13 +245,23 @@ class Notifier:
         r.raise_for_status()
         return "Posted to Discord"
 
-    def _email(self, to: str, subject: str, body: str, ics: str | None, record: bool = True) -> str:
+    def _email(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        ics: str | None,
+        record: bool = True,
+        headers: dict[str, str] | None = None,
+    ) -> str:
         e: EmailCfg = self.cfg.notify.email
         msg = EmailMessage()
         msg["Subject"] = subject
         msg["From"] = formataddr(("Kalends", e.sender or ""))
         msg["To"] = to
         msg["Message-ID"] = make_msgid(domain=(e.sender or "kalends.local").split("@")[-1])
+        for k, v in (headers or {}).items():
+            msg[k] = v
         msg.set_content(body)
         if ics:
             msg.add_attachment(

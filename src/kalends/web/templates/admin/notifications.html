@@ -15,11 +15,19 @@
   </form>
   {% endif %}
 {% endmacro %}
+{% macro cal_checks(name, chosen, note) %}
+  <fieldset class="checks">
+    <legend>{{ note }}</legend>
+    {% for cid, cname in cal_list %}
+    <label class="check"><input type="checkbox" name="{{ name }}" value="{{ cid }}" {% if cid in chosen %}checked{% endif %}> {{ cname }}</label>
+    {% endfor %}
+  </fieldset>
+{% endmacro %}
 {% block content %}
 <header class="pagehead">
   <div>
     <h1>Notifications</h1>
-    <p class="muted">How Kalends tells you about new meeting requests. Switch on as many as you like; each works on its own.</p>
+    <p class="muted">What Kalends tells you about, and where. Set up the ways to reach you at the bottom of the page, then pick which messages go where.</p>
   </div>
 </header>
 {% set n = cfg.notify %}
@@ -27,10 +35,91 @@
 <form method="post" action="/notifications" class="form" id="notify-form">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="rev" value="{{ rev }}">
+  <input type="hidden" name="kinds_form" value="1">
+
+  <section class="panel" id="what">
+    <h2>What goes where</h2>
+    <p class="muted">Tick where each kind of message should go. A way that isn't set up yet sends nothing until it is.</p>
+    <div class="table-wrap">
+    <table class="table compact routes">
+      <thead><tr><th>Message</th>{% for ch in channels %}<th class="center">{{ channel_names[ch] }}{% if ch not in enabled %}<span class="hint">not set up</span>{% endif %}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for kind, label, help in kinds %}
+        <tr>
+          <th scope="row">{{ label }}<span class="hint">{{ help }}</span></th>
+          {% for ch in channels %}<td class="center"><input type="checkbox" name="route_{{ kind }}_{{ ch }}" aria-label="{{ label }} by {{ channel_names[ch] }}" {% if ch in n.routes.get(kind, []) %}checked{% endif %}></td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel" id="reminders">
+    <div class="panelhead"><h2>Event reminders</h2>{% if n.reminders.enabled %}<span class="status ok">On</span>{% else %}<span class="status">Off</span>{% endif %}</div>
+    <label class="check"><input type="checkbox" name="rem_enabled" {% if n.reminders.enabled %}checked{% endif %}> Remind me before my events</label>
+    <label>How long before
+      <select name="rem_minutes">
+        {% for m, label in [(0, 'When it starts'), (5, '5 minutes'), (10, '10 minutes'), (15, '15 minutes'), (30, '30 minutes'), (60, '1 hour')] %}<option value="{{ m }}" {% if n.reminders.minutes == m %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <details class="help"{% if n.reminders.calendars %} open{% endif %}><summary>Only some calendars</summary>
+      {{ cal_checks('rem_cal', n.reminders.calendars, 'Remind me about these (none ticked: all of them)') }}
+    </details>
+    <p class="hint">All-day events and ones marked "free" don't get reminders. The same event on two calendars is reminded once.</p>
+  </section>
+
+  <section class="panel" id="summary">
+    <div class="panelhead"><h2>Morning summary</h2>{% if n.summary.enabled %}<span class="status ok">On</span>{% else %}<span class="status">Off</span>{% endif %}</div>
+    <label class="check"><input type="checkbox" name="sum_enabled" {% if n.summary.enabled %}checked{% endif %}> Send me the day's events each morning</label>
+    <label>At <input type="time" name="sum_at" value="{{ n.summary.at.strftime('%H:%M') }}"></label>
+    <label class="check"><input type="checkbox" name="sum_skip_empty" {% if n.summary.skip_empty %}checked{% endif %}> Skip days with nothing on</label>
+    <details class="help"{% if n.summary.calendars %} open{% endif %}><summary>Only some calendars</summary>
+      {{ cal_checks('sum_cal', n.summary.calendars, 'Include these (none ticked: all of them)') }}
+    </details>
+  </section>
+
+  <section class="panel" id="problems">
+    <div class="panelhead"><h2>Calendar problems</h2>{% if n.problems.enabled %}<span class="status ok">On</span>{% else %}<span class="status">Off</span>{% endif %}</div>
+    <label class="check"><input type="checkbox" name="prob_enabled" {% if n.problems.enabled %}checked{% endif %}> Tell me when a calendar stops updating, comes back empty, or is fine again</label>
+    <label>Wait before saying it's stuck
+      <select name="prob_after">
+        {% for m, label in [(30, '30 minutes'), (60, '1 hour'), (180, '3 hours'), (720, '12 hours'), (1440, '1 day')] %}<option value="{{ m }}" {% if n.problems.after_minutes == m %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <p class="hint">Short outages are normal (a provider having a bad minute); Kalends keeps showing the last copy meanwhile.</p>
+  </section>
+
+  <section class="panel" id="activity">
+    <div class="panelhead"><h2>Link activity</h2>{% if n.activity.enabled %}<span class="status ok">On</span>{% else %}<span class="status">Off</span>{% endif %}</div>
+    <label class="check"><input type="checkbox" name="act_enabled" {% if n.activity.enabled %}checked{% endif %}> Tell me about my links:</label>
+    <div class="indent">
+      <label class="check"><input type="checkbox" name="act_first" {% if n.activity.first_open %}checked{% endif %}> The first time a link is opened, or added to a calendar app</label>
+      <label class="check"><input type="checkbox" name="act_lockouts" {% if n.activity.lockouts %}checked{% endif %}> Too many wrong passwords on a link</label>
+      <label>When a person's link is about to end
+        <select name="act_expiring">
+          {% for d, label in [(0, "Don't tell me"), (1, 'The day before'), (3, '3 days before'), (7, 'A week before')] %}<option value="{{ d }}" {% if n.activity.expiring_days == d %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel" id="changes">
+    <div class="panelhead"><h2>Calendar changes</h2>{% if n.changes.calendars %}<span class="status ok">{{ n.changes.calendars | length }} calendar{{ '' if n.changes.calendars | length == 1 else 's' }}</span>{% else %}<span class="status">Off</span>{% endif %}</div>
+    <p class="muted">Best for calendars other people edit, like a shared family calendar or a group's schedule; you already know about your own edits.</p>
+    {{ cal_checks('chg_cal', n.changes.calendars, 'Tell me when events are added, moved or cancelled on:') }}
+    <label>Looking ahead
+      <select name="chg_days">
+        {% for d in [7, 14, 30, 60] %}<option value="{{ d }}" {% if n.changes.days_ahead == d %}selected{% endif %}>{{ d }} days</option>{% endfor %}
+      </select>
+    </label>
+  </section>
+
+  <h2 class="section-head">Ways to reach you</h2>
 
   <section class="panel">
     <div class="panelhead"><h2>Phone (ntfy)</h2>{% if 'ntfy' in enabled %}<span class="status ok">On</span>{% else %}<span class="status">Off</span>{% endif %}</div>
-    <p class="muted">Free push notifications. Install the <strong>ntfy</strong> app (iPhone or Android), tap +, and subscribe to the topic below. Tapping a notification opens your Requests page.</p>
+    <p class="muted">Free push notifications. Install the <strong>ntfy</strong> app (iPhone or Android), tap +, and subscribe to the topic below. Tapping a notification opens the settings panel.</p>
     <label class="check"><input type="checkbox" name="ntfy_enabled" {% if n.ntfy.enabled %}checked{% endif %}> Send to my phone</label>
     <div class="grid2">
       <label>Topic
@@ -69,6 +158,7 @@
       <label><span>Send my notifications to <span class="muted">(optional)</span></span> <input type="email" name="to_addr" value="{{ n.email.to_addr or '' }}" placeholder="Same as the sender"></label>
     </div>
     <label class="check"><input type="checkbox" name="notify_requester" {% if n.email.notify_requester %}checked{% endif %}> Also email people about their own requests <span class="muted">(a confirmation, then your answer with a calendar file)</span></label>
+    <p class="hint">With email set up, people you share with can also choose email alerts (on an audience's Alerts tab).</p>
   </section>
 
   <section class="panel">
@@ -88,13 +178,36 @@
   <div class="actions"><button type="submit">Save notifications</button></div>
 </form>
 
+<section class="panel" id="browser">
+  <div class="panelhead"><h2>Browser</h2>{% if 'webpush' in enabled %}<span class="status ok">{{ devices | length }} browser{{ '' if devices | length == 1 else 's' }}</span>{% else %}<span class="status">Off</span>{% endif %}</div>
+  <p class="muted">Notifications straight from Kalends to a browser on your computer or phone, encrypted so only that browser can read them. Turn them on in each browser you want them in. On iPhone and iPad, first add this panel to your Home Screen (Share &rsaquo; Add to Home Screen), open it from there, and turn them on.</p>
+  {% if devices %}
+  <ul class="devices">
+    {% for d in devices %}
+    <li><strong>{{ d.label or 'Browser' }}</strong> <span class="muted small">since {{ d.created[:10] }}{% if d.last_error %} · last try failed: {{ d.last_error }}{% elif d.last_ok %} · last sent {{ d.last_ok[:10] }}{% endif %}</span>
+      <form method="post" action="/notifications/push/{{ d.id }}/delete" class="inline-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="link danger small">Remove</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <div data-push data-key="{{ vapid }}" data-post="/notifications/push" data-csrf="{{ csrf }}">
+    <button type="button" class="secondary" data-push-on>Turn on notifications in this browser</button>
+    <p class="hint" data-push-status role="status"></p>
+  </div>
+</section>
+
 <section class="panel">
   <h2>Test</h2>
-  <p class="muted">Save first, then send a test to each channel that's on.</p>
+  <p class="muted">Save first, then send a test to each way that's on.</p>
   <div class="test-grid">
     <div><strong>Phone</strong>{{ test_button('ntfy', 'ntfy' in enabled) }}{{ last_result('ntfy') }}{% if 'ntfy' not in enabled %}<p class="hint">Switch it on and add a topic.</p>{% endif %}</div>
+    <div><strong>Browser</strong>{{ test_button('webpush', 'webpush' in enabled) }}{{ last_result('webpush') }}{% if 'webpush' not in enabled %}<p class="hint">Turn it on in a browser above.</p>{% endif %}</div>
     <div><strong>Email</strong>{{ test_button('email', 'email' in enabled) }}{{ last_result('email') }}{% if 'email' not in enabled %}<p class="hint">Switch it on and add a mail server.</p>{% endif %}</div>
     <div><strong>Discord</strong>{{ test_button('discord', 'discord' in enabled) }}{{ last_result('discord') }}{% if 'discord' not in enabled %}<p class="hint">Switch it on and add a webhook link.</p>{% endif %}</div>
   </div>
 </section>
+<script src="/static/alerts.js?v={{ version }}" defer></script>
 {% endblock %}

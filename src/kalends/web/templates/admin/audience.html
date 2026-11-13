@@ -16,7 +16,7 @@
 
 <nav class="tabs" aria-label="{{ aud.title }} settings">
   {% for key, label in audience_tabs %}
-  <a href="/audiences/{{ aid }}?tab={{ key }}" {% if tab == key %}aria-current="page"{% endif %}>{{ label }}{% if (key == 'requests' and aud.requests.enabled) or (key == 'widget' and aud.widget.enabled) %} <span class="status ok">On</span>{% endif %}</a>
+  <a href="/audiences/{{ aid }}?tab={{ key }}" {% if tab == key %}aria-current="page"{% endif %}>{{ label }}{% if (key == 'requests' and aud.requests.enabled) or (key == 'widget' and aud.widget.enabled) or (key == 'alerts' and aud.alerts.enabled) %} <span class="status ok">On</span>{% endif %}</a>
   {% endfor %}
 </nav>
 
@@ -292,6 +292,64 @@
   </form>
 </section>
 
+{% endif %}
+
+{% if tab == 'alerts' %}
+{% set al = aud.alerts %}
+<section class="panel" id="alerts">
+  <h2>Alerts</h2>
+  <p class="muted">Let people with this audience's links turn on alerts from the schedule page (a <strong>Get alerts</strong> link at the bottom): when plans change, and before events start. Alerts show only what this audience can see{% if aud.default.value == 'busy' %}: for most calendars here that's just when you're busy, with no titles{% endif %}.</p>
+  <form method="post" action="/audiences/{{ aid }}/alerts" class="form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="rev" value="{{ rev }}">
+    <label class="check"><input type="checkbox" name="alerts_enabled" {% if al.enabled %}checked{% endif %}> People can turn on alerts</label>
+    <fieldset class="checks">
+      <legend>What they can ask for</legend>
+      <label class="check"><input type="checkbox" name="alerts_changes" {% if al.changes %}checked{% endif %}> When plans change: added, moved or cancelled</label>
+      <label class="check"><input type="checkbox" name="alerts_reminders" {% if al.reminders %}checked{% endif %}> Reminders before events (not for busy-only blocks)</label>
+    </fieldset>
+    <label>Changes looking ahead
+      <select name="alerts_days">
+        {% for d in [7, 14, 30, 60] %}<option value="{{ d }}" {% if al.days_ahead == d %}selected{% endif %}>{{ d }} days</option>{% endfor %}
+      </select>
+    </label>
+    <fieldset class="checks">
+      <legend>How they can get them</legend>
+      <label class="check"><input type="checkbox" name="alerts_channel" value="webpush" {% if 'webpush' in al.channels %}checked{% endif %}> Browser notifications <span class="muted">(encrypted; on iPhone, from a Home Screen bookmark)</span></label>
+      <label class="check"><input type="checkbox" name="alerts_channel" value="email" {% if 'email' in al.channels %}checked{% endif %}> Email, after they confirm their address {% if not can_email %}<span class="muted">(set up email on <a href="/notifications">Notifications</a> first)</span>{% endif %}</label>
+      <label class="check"><input type="checkbox" name="alerts_channel" value="ntfy" {% if 'ntfy' in al.channels %}checked{% endif %}> The ntfy app, with a private topic made for them</label>
+    </fieldset>
+    <p class="hint">Making a new link or changing the password stops alerts that were turned on through the old one. Turning alerts off here stops everyone's.</p>
+    <div class="actions"><button type="submit">Save alerts</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Who gets alerts <span class="muted small">{{ alert_subs | length }}</span></h2>
+  {% if alert_subs %}
+  <div class="table-wrap">
+  <table class="table compact">
+    <thead><tr><th>Who</th><th>How</th><th>What</th><th>Since</th><th></th></tr></thead>
+    <tbody>
+      {% for r in alert_subs %}
+      <tr>
+        <td>{{ r.who }}</td>
+        <td>{{ r.how }}{% if r.waiting %} <span class="status">Not confirmed yet</span>{% endif %}{% if r.error %} <span class="hint">Last try failed: {{ r.error }}</span>{% endif %}</td>
+        <td>{{ r.what }}</td>
+        <td class="nowrap">{{ fmt_day(r.since) if r.since else '' }}</td>
+        <td class="nowrap">
+          <form method="post" action="/audiences/{{ aid }}/alerts/{{ r.id }}/delete" class="inline-form" data-confirm="Stop these alerts?">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="link danger small">Stop</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p class="muted">Nobody yet.</p>{% endif %}
+</section>
 {% endif %}
 
 {% if tab == 'widget' %}

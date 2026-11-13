@@ -50,6 +50,7 @@ def _config_secrets(cfg: AppConfig) -> list[str | None]:
         found += [person.slug, person.password_hash, feed_token(cfg, person_viewer(cfg, pid))]
     n = cfg.notify
     found += [n.ntfy.topic, n.ntfy.token, n.email.password, n.discord.webhook_url]
+    found.append(n.webpush.vapid_private_key)
     v = cfg.video_calls
     found += [v.zoom.account_id, v.zoom.client_id, v.zoom.client_secret]
     found += [v.google.client_id, v.google.client_secret, v.teams.client_id]
@@ -74,6 +75,15 @@ def video_tokens(config_path: Path) -> list[str]:
     """The sign-in tokens in video-accounts.json beside the config (missing or unreadable: none)."""
     try:
         data = json.loads((config_path.resolve().parent / conferencing.FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return list(_strings(data))
+
+
+def alert_values(config_path: Path) -> list[str]:
+    """Everything in alerts.json (manage links, ntfy topics, email addresses, browser addresses)."""
+    try:
+        data = json.loads((config_path.resolve().parent / "alerts.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
     return list(_strings(data))
@@ -154,5 +164,5 @@ def diagnostics_text(
         log_path=str(log_file(config_path)),
         extra=extra,
     )
-    others = [*video_tokens(config_path), *request_tokens]
+    others = [*video_tokens(config_path), *alert_values(config_path), *request_tokens]
     return scrub(text, secret_values(cfg, read_env_file(env_path).values(), others))

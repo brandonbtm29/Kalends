@@ -44,7 +44,8 @@ It runs on your own computer. Raw calendar data never leaves it; only already-fi
 - **Kalends calendars**: make calendars right in Kalends (no other account needed), add one-off or repeating events in the panel, and share one as a subscription link for phones and calendar apps.
 - **Meeting requests and booking**: an audience (say, coworkers) can ask for a meeting by picking one of your open times or suggesting one. You accept, decline or propose another time from the panel, or let open times be booked straight away. Confirmed meetings can land on a Kalends calendar automatically, and there's an optional public booking page. Open times come from *all* your calendars, so a hidden appointment still blocks the slot without revealing anything about it.
 - **A new Zoom, Teams, Google Meet, Webex or Jitsi Meet meeting for every booking**: the person booking picks from the services you offer, each confirmed meeting gets its own link (shared only once it's confirmed), and cancelling deletes it. Or just use one fixed link.
-- **Notifications on your phone, by email or in Discord**: switch on any mix of the three to hear about new requests right away.
+- **Notifications on your phone, in your browser, by email or in Discord**: meeting requests, reminders before your events, a morning summary, calendars that stop updating, the first time someone opens a link, and changes on calendars other people edit. You pick which kind goes where.
+- **Alerts for the people you share with**: an audience can let its viewers turn on alerts (browser notifications, email or the ntfy app) when plans change and before events start, showing only what that audience can see.
 - **Website widget**: a small free/busy view of the next few days (no titles) for a lab, course or personal site, with an optional "Request a meeting" button. It has its own link and you choose which sites may embed it.
 - **School mode**: tell Kalends your semesters (typed in, or read from your school's academic calendar: a calendar feed, or the web page with its table of dates). Viewers see "Fall 2026 · Week 7" and break days, class events pause over breaks and between terms, and Kalends tells you when the school changes its dates.
 - **Excel download** of any visible week or month (works on phones too), and a **subscribe-able ICS feed** so viewers can add your (filtered) schedule to their own calendar app.
@@ -222,15 +223,39 @@ Client secrets go in `.env`; the sign-ins are kept in `video-accounts.json` besi
 
 ### Notifications
 
-On **Notifications**, switch on any of:
+**Settings › Notifications** has two halves: what Kalends tells you about, and the ways it can reach you.
 
-| Channel | You need | Setup |
+| Message | What sets it off |
+| --- | --- |
+| **Meeting requests** | A request arrives, is booked, cancelled, or a new time is accepted or declined |
+| **School calendar** | Your school changes its academic calendar (see School mode) |
+| **Event reminders** | A few minutes before your events (pick how long, and optionally which calendars). Off until you switch it on |
+| **Morning summary** | The day's events at a time you choose. Off until you switch it on |
+| **Calendar problems** | A calendar hasn't updated for an hour (adjustable), comes back with no events, or is fine again |
+| **Link activity** | A link is opened, or added to a calendar app, for the first time; a person's link is about to end; too many wrong passwords on a link |
+| **Calendar changes** | Events added, moved or cancelled on calendars you pick: best for calendars other people edit |
+
+A table of ticks decides which of these go to which way of reaching you. By default everything goes everywhere, except reminders (phone and browser only) and the morning summary (no Discord).
+
+| Way | You need | Setup |
 | --- | --- | --- |
-| **Phone** | the free [ntfy](https://ntfy.sh) app | Kalends suggests a random topic; subscribe to it in the app. Tapping a notification opens your Requests page (with Tailscale on). |
+| **Phone** | the free [ntfy](https://ntfy.sh) app | Kalends suggests a random topic; subscribe to it in the app. Tapping a notification opens the settings panel (with Tailscale on). |
+| **Browser** | a browser on your computer or phone | Press **Turn on notifications in this browser** in each browser you want them in. On iPhone and iPad, add the settings panel to your Home Screen first and turn them on from there. Messages are encrypted so only that browser can read them. |
 | **Email** | an email account with SMTP | For Gmail: turn on 2-Step Verification, create an app password, use `smtp.gmail.com`, port 587. Can also email requesters a confirmation and your answer, with a calendar file. |
 | **Discord** | a server you manage | Channel settings › Integrations › Webhooks › New Webhook › Copy Webhook URL. |
 
-Each has a **Send a test** button. Topics, passwords and webhook links are stored in `.env`, never in `config.yaml`.
+Each has a **Send a test** button. Topics, passwords, webhook links and the browser-notification signing key are stored in `.env`, never in `config.yaml`. Your browsers are listed on the page (with **Remove**); a browser that turns notifications off is forgotten by itself.
+
+#### Alerts for the people you share with
+
+On an audience's **Alerts** tab, tick **People can turn on alerts**. Its pages then get a **Get alerts** link at the bottom, where viewers choose:
+
+- **what**: when plans change (added, moved or cancelled in the next 14 days, adjustable), and reminders before events (10 minutes to a day, their pick);
+- **how**: notifications in their browser (no app; on iPhone from a Home Screen bookmark), **email** (they confirm their address first; needs your email set up), or the **ntfy app** (Kalends makes a private topic for them).
+
+Alerts only ever say what that audience can see: a busy-only audience hears "Busy" with no titles, and busy blocks get no reminders. Times are in the viewer's own time zone. Each alert carries a link to change or stop it, and the Alerts tab lists who has them, with **Stop**. Making a new link, changing the password, a person's link ending, or switching alerts off stops the alerts that came through it. Nobody gets more than 25 a day.
+
+Who gets alerts and where is kept in `alerts.json`, and what was already said (so nothing repeats after a restart) in `alerts-state.json`, both beside your config. Git ignores them and update backups include them.
 
 ### Website widget
 

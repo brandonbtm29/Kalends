@@ -34,6 +34,7 @@ from markupsafe import Markup, escape
 from starlette.concurrency import run_in_threadpool
 
 from .. import __version__, autostart, bookings, conferencing, localcal, support, tailscale, updates
+from ..alerts import LEADS
 from ..availability import busy_times, is_free
 from ..config import (
     EMOJI_MARKERS,
@@ -181,14 +182,17 @@ SECTIONS = [
         [
             ("requests", "Requests", "/requests"),
             ("video_calls", "Video calls", "/video-calls"),
-            ("notifications", "Notifications", "/notifications"),
         ],
     ),
     (
         "settings",
         "Settings",
         "/settings",
-        [("settings", "General", "/settings"), ("setup", "This computer", "/setup")],
+        [
+            ("settings", "General", "/settings"),
+            ("notifications", "Notifications", "/notifications"),
+            ("setup", "This computer", "/setup"),
+        ],
     ),
 ]
 # Pages one level down (an audience, a calendar, a person, an event) belong to a tab but show a
@@ -205,8 +209,21 @@ AUDIENCE_TABS = [
     ("access", "Link & access"),
     ("see", "What they see"),
     ("requests", "Meeting requests"),
+    ("alerts", "Alerts"),
     ("widget", "Website widget"),
 ]
+# The Notifications page: each kind of message, and the ways it can go.
+NOTE_KIND_INFO = [
+    ("requests", "Meeting requests", "New, booked, cancelled and rescheduled requests"),
+    ("school", "School calendar", "When your school changes its academic calendar"),
+    ("reminders", "Event reminders", "Shortly before your events"),
+    ("summary", "Morning summary", "The day's events, each morning"),
+    ("problems", "Calendar problems", "A calendar stops updating, comes back empty, or recovers"),
+    ("activity", "Link activity", "First opens, links about to end, wrong passwords"),
+    ("changes", "Calendar changes", "Events added, moved or cancelled on calendars you pick"),
+]
+CHANNEL_NAMES = {"ntfy": "Phone (ntfy)", "webpush": "Browser", "email": "Email", "discord": "Discord"}
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 VIEW_HELP = {
     "day": "Day: one day, hour by hour (handy on phones)",
     "week": "Week: the hour-by-hour grid",
@@ -220,7 +237,8 @@ RULE_PREVIEW_WEEKS = 4
 ADMIN_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; "
-        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'; connect-src 'self'"
+        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'; connect-src 'self'; "
+        "manifest-src 'self'; worker-src 'self'"
     ),
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -1308,6 +1326,9 @@ def create_admin_app(rt: Runtime) -> FastAPI:
                 "widget_url": widget_link(aud),
                 "embed": embed_code(aud),
                 "channels": rt.notifier.enabled(),
+                "alert_subs": alert_rows(aid) if tab == "alerts" else [],
+                "can_email": rt.notifier.can_email(),
+                "leads": LEADS,
                 "error": error,
                 "tab": tab,
                 "audience_tabs": tabs,
@@ -1315,6 +1336,37 @@ def create_admin_app(rt: Runtime) -> FastAPI:
             sess,
             status,
         )
+
+    def alert_rows(aid: str) -> list[dict]:
+        """Who has alerts on for this audience, newest first."""
+        rows = []
+        for sub in rt.alerts.subs.viewers():
+            ok = rt.alerts.valid_viewer(sub, confirmed=False)
+            if ok is None or ok[0] != aid:
+                continue
+            person = ok[2]
+            how = {"webpush": f"Browser · {sub.get('label') or ''}", "email": sub.get("email") or "Email",
+                   "ntfy": "ntfy app"}.get(sub.get("channel"), "?")  # fmt: skip
+            what = []
+            if sub.get("changes"):
+                what.append("changes")
+            if sub.get("reminders"):
+                what.append(f"{LEADS.get(int(sub.get('lead') or 30), '')} before".strip())
+            rows.append(
+                {
+                    "id": sub["id"],
+                    "who": person.name if person else "Shared link",
+                    "how": how,
+                    "what": ", ".join(what) or "nothing",
+                    "waiting": sub.get("channel") == "email" and not sub.get("confirmed"),
+                    "since": datetime.fromisoformat(sub["created"]).astimezone(cfg().tz).date()
+                    if sub.get("created")
+                    else None,
+                    "last": sub.get("last_ok"),
+                    "error": sub.get("last_error"),
+                }
+            )
+        return sorted(rows, key=lambda r: r["since"] or date.min, reverse=True)
 
     @app.get("/audiences/{aid}", response_class=HTMLResponse)
     def audience(request: Request, aid: str):
@@ -2275,6 +2327,12 @@ def create_admin_app(rt: Runtime) -> FastAPI:
                 "tested": tested,
                 "error": error,
                 "suggest_topic": "kalends-" + secrets.token_urlsafe(15).replace("_", "x"),
+                "kinds": NOTE_KIND_INFO,
+                "channel_names": CHANNEL_NAMES,
+                "channels": CHANNELS,
+                "devices": rt.alerts.subs.owner_devices(),
+                "vapid": rt.alerts.vapid_public(),
+                "cal_list": [(cid, c.name) for cid, c in cfg().calendars.items()],
             },
             sess,
             status,
@@ -2332,12 +2390,157 @@ def create_admin_app(rt: Runtime) -> FastAPI:
                 n["panel_url"] = text("panel_url").rstrip("/")
             else:
                 n.pop("panel_url", None)
+            if form.get("kinds_form") != "1":
+                return  # an older page without the "what to tell you" part
+
+            def number(name: str, default: int, lo: int, hi: int) -> int:
+                try:
+                    return max(lo, min(hi, int(text(name) or default)))
+                except ValueError:
+                    return default
+
+            def cals(name: str) -> list[str]:
+                return [cid for cid in form.getlist(name) if cid in cfg().calendars]
+
+            n["routes"] = {
+                kind: [ch for ch in CHANNELS if form.get(f"route_{kind}_{ch}") == "on"]
+                for kind, _, _ in NOTE_KIND_INFO
+            }
+            n["reminders"] = {
+                "enabled": form.get("rem_enabled") == "on",
+                "minutes": number("rem_minutes", 10, 0, 1440),
+                "calendars": cals("rem_cal"),
+            }
+            n["summary"] = {
+                "enabled": form.get("sum_enabled") == "on",
+                "at": text("sum_at") if _HHMM.match(text("sum_at")) else "07:30",
+                "skip_empty": form.get("sum_skip_empty") == "on",
+                "calendars": cals("sum_cal"),
+            }
+            n["problems"] = {
+                "enabled": form.get("prob_enabled") == "on",
+                "after_minutes": number("prob_after", 60, 10, 7 * 24 * 60),
+            }
+            n["activity"] = {
+                "enabled": form.get("act_enabled") == "on",
+                "first_open": form.get("act_first") == "on",
+                "lockouts": form.get("act_lockouts") == "on",
+                "expiring_days": number("act_expiring", 3, 0, 60),
+            }
+            n["changes"] = {"calendars": cals("chg_cal"), "days_ahead": number("chg_days", 14, 1, 90)}
 
         try:
             await save(mutate)
         except ConfigError as exc:
             return notify_page(request, sess, str(exc), 400)
         return done("/notifications", "saved")
+
+    @app.post("/notifications/push")
+    async def notifications_push(request: Request):
+        """Turn on browser notifications for the browser you're using the panel in."""
+        sess = session(request)
+        if not sess or not hmac.compare_digest(request.headers.get("X-CSRF", ""), sess.get("c", "")):
+            return Response(
+                '{"ok": false, "error": "Please sign in again"}', 403, media_type="application/json"
+            )
+        try:
+            data = await request.json()
+            sub = data["subscription"]
+            endpoint, keys = str(sub["endpoint"]), sub["keys"]
+            p256dh, auth = str(keys["p256dh"]), str(keys["auth"])
+        except (ValueError, KeyError, TypeError):
+            return Response(
+                '{"ok": false, "error": "Not a browser subscription"}', 400, media_type="application/json"
+            )
+        if not endpoint.startswith("https://") or len(endpoint) > 1000:
+            return Response(
+                '{"ok": false, "error": "Not a browser subscription"}', 400, media_type="application/json"
+            )
+        rt.alerts.add_owner_device(endpoint, p256dh, auth, request.headers.get("user-agent", ""))
+        note = Note(
+            title="Kalends",
+            body="Notifications are on for this browser.",
+            url=f"{panel_link()}/notifications",
+            tags="tada",
+        )
+        await run_in_threadpool(rt.notifier.send, "webpush", note)
+        return Response('{"ok": true}', media_type="application/json")
+
+    @app.get("/sw.js")
+    def service_worker():
+        return Response(
+            (HERE / "static" / "kalends-sw.js").read_text(encoding="utf-8"),
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        return Response(
+            json.dumps(
+                {
+                    "name": "Kalends settings",
+                    "short_name": "Kalends",
+                    "start_url": "/",
+                    "scope": "/",
+                    "display": "standalone",
+                    "background_color": "#f6f7fb",
+                    "theme_color": "#3b6fd8",
+                    "icons": [
+                        {"src": "/static/kalends-192.png", "sizes": "192x192", "type": "image/png"},
+                        {"src": "/static/kalends-512.png", "sizes": "512x512", "type": "image/png"},
+                    ],
+                }
+            ),
+            media_type="application/manifest+json",
+        )
+
+    @app.post("/audiences/{aid}/alerts", response_class=HTMLResponse)
+    async def audience_alerts(request: Request, aid: str):
+        sess, form = await checked_form(request)
+        if not sess:
+            return to_login()
+        if aid not in cfg().audiences or cfg().audiences[aid].self_view:
+            return RedirectResponse("/sharing", status_code=303)
+
+        def mutate(d: Draft) -> None:
+            node = d.audiences[aid].setdefault("alerts", {})
+            node["enabled"] = form.get("alerts_enabled") == "on"
+            node["changes"] = form.get("alerts_changes") == "on"
+            node["reminders"] = form.get("alerts_reminders") == "on"
+            try:
+                node["days_ahead"] = max(1, min(60, int(str(form.get("alerts_days") or 14))))
+            except ValueError:
+                node["days_ahead"] = 14
+            node["channels"] = [
+                c for c in ("webpush", "email", "ntfy") if c in form.getlist("alerts_channel")
+            ]
+
+        try:
+            await save(mutate)
+        except ConfigError as exc:
+            return audience_page(request, sess, aid, str(exc), 400, "alerts")
+        return done(f"/audiences/{aid}?tab=alerts", "saved")
+
+    @app.post("/audiences/{aid}/alerts/{sid}/delete")
+    async def audience_alert_delete(request: Request, aid: str, sid: str):
+        sess, _ = await checked_form(request)
+        if not sess:
+            return to_login()
+        sub = rt.alerts.subs.get(sid)
+        if sub and sub.get("who") == "viewer":
+            rt.alerts.subs.remove(sid)
+        return done(f"/audiences/{aid}?tab=alerts", "saved")
+
+    @app.post("/notifications/push/{sid}/delete")
+    async def notifications_push_delete(request: Request, sid: str):
+        sess, _ = await checked_form(request)
+        if not sess:
+            return to_login()
+        sub = rt.alerts.subs.get(sid)
+        if sub and sub.get("who") == "owner":
+            rt.alerts.subs.remove(sid)
+        return done("/notifications#browser", "saved")
 
     @app.post("/notifications/test/{channel}", response_class=HTMLResponse)
     async def notifications_test(request: Request, channel: str):
@@ -2348,8 +2551,8 @@ def create_admin_app(rt: Runtime) -> FastAPI:
             return RedirectResponse("/notifications", status_code=303)
         note = Note(
             title="Kalends test",
-            body="If you can read this, Kalends can reach you here about meeting requests.",
-            url=f"{panel_link()}/requests",
+            body="If you can read this, Kalends can reach you here.",
+            url=f"{panel_link()}/notifications",
             tags="tada",
         )
         res = await run_in_threadpool(rt.notifier.send, channel, note)

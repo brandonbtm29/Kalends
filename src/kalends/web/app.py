@@ -18,13 +18,14 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.concurrency import run_in_threadpool
 
 from .. import __version__, bookings
+from ..alerts import LEADS, MAX_SUBS, Alerts, clean_email, device_label
 from ..availability import busy_blocks_for_days, busy_times, fits_rules, is_free, open_slots, request_range
 from ..conferencing import PLATFORMS, SHORT
 from ..config import AppConfig, AudienceCfg, Level
@@ -99,7 +100,8 @@ COMMON_ZONES = [
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; "
-        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'; connect-src 'self'; "
+        "manifest-src 'self'; worker-src 'self'"
     ),
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -130,11 +132,14 @@ def create_app(
     seen: SeenStore | None = None,
     requests: RequestStore | None = None,
     notifier: Notifier | None = None,
+    alerts: Alerts | None = None,
 ) -> FastAPI:
     g = kalends or Kalends(cfg)
     seen = seen or SeenStore(None)
     reqs = requests or RequestStore(None)
     notes = notifier or Notifier(lambda: g.cfg)
+    al = alerts or Alerts(lambda: g.cfg, lambda: g, notes)
+    alert_posts: dict[str, list[float]] = {}
     limiter = LoginLimiter()
     sent_by_ip: dict[str, list[float]] = {}
     templates = Jinja2Templates(directory=str(HERE / "templates"))
@@ -225,7 +230,7 @@ def create_app(
 
     def safe_next(v: Viewer, value: str) -> str:
         """Only paths inside this viewer's own pages."""
-        if value == "request":
+        if value in ("request", "alerts"):
             return value
         m = re.fullmatch(r"(day|week|month|quarter|year)/(\d{4}-\d{2}-\d{2})", value or "")
         if m and parse_day(m.group(2)):
@@ -284,6 +289,8 @@ def create_app(
             "repo_url": f"https://github.com/{g.cfg.updates.repo}",
             "support_url": f"https://github.com/{g.cfg.updates.repo}#support" if g.cfg.support_link else None,
             "request_url": f"{v.base}/request" if aud.requests.enabled else None,
+            "alerts_url": f"{v.base}/alerts" if aud.alerts.enabled and not aud.self_view else None,
+            "manifest_url": f"{v.base}/manifest.webmanifest",
             "term_label": None,
             "school_days": {},
             **zone_ctx(request, v, tz),
@@ -764,6 +771,261 @@ def create_app(
             return not_found(request)
         return Response(body, media_type="text/calendar; charset=utf-8")
 
+    # -- alerts (browser notifications, email, ntfy) ---------------------------------------------
+
+    SW = HERE / "static" / "kalends-sw.js"
+
+    @app.get("/sw.js")
+    def service_worker():
+        return Response(
+            SW.read_text(encoding="utf-8"),
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/{kind}/{slug}/manifest.webmanifest")
+    def manifest(request: Request, kind: str, slug: str):
+        v = find(request, kind, slug)
+        if not isinstance(v, Viewer):
+            return v
+        title = v.audience.title
+        return JSONResponse(
+            {
+                "name": title,
+                "short_name": title[:12],
+                "start_url": v.base,
+                "scope": v.base,
+                "display": "standalone",
+                "background_color": "#f6f7fb",
+                "theme_color": "#3b6fd8",
+                "icons": [
+                    {"src": "/static/kalends-192.png", "sizes": "192x192", "type": "image/png"},
+                    {"src": "/static/kalends-512.png", "sizes": "512x512", "type": "image/png"},
+                ],
+            },
+            media_type="application/manifest+json",
+        )
+
+    def alerts_viewer(request: Request, kind: str, slug: str) -> Viewer | Response:
+        v = find(request, kind, slug)
+        if not isinstance(v, Viewer):
+            return v
+        if not v.audience.alerts.enabled or v.audience.self_view:
+            return not_found(request)
+        if not authed(request, v):
+            return to_login(v, "alerts")
+        return v
+
+    def alerts_allowed(ip: str) -> bool:
+        import time as _time
+
+        now = _time.monotonic()
+        recent = [t for t in alert_posts.get(ip, []) if now - t < 3600]
+        alert_posts[ip] = recent
+        if len(alert_posts) > 5000:
+            for k in list(alert_posts)[:1000]:
+                alert_posts.pop(k, None)
+        if len(recent) >= 10:
+            return False
+        recent.append(now)
+        return True
+
+    def alerts_page_ctx(request: Request, v: Viewer, **extra) -> dict:
+        a = v.audience.alerts
+        return {
+            "aud": v.audience,
+            "base": v.base,
+            "person": v.person.name if v.person else None,
+            "owner_first": (g.cfg.owner_name or "").strip() or None,
+            "a": a,
+            "leads": LEADS,
+            "token": form_token(f"alerts:{v.key}"),
+            "vapid": al.vapid_public() if "webpush" in a.channels else None,
+            "email_ok": "email" in a.channels and notes.can_email(),
+            "ntfy_ok": "ntfy" in a.channels,
+            "manifest_url": f"{v.base}/manifest.webmanifest",
+            "full": al.count_for(v.audience_id, v.person_id) >= MAX_SUBS,
+            "values": {},
+            "error": None,
+            "sent_to": None,
+            **extra,
+        }
+
+    @app.get("/{kind}/{slug}/alerts", response_class=HTMLResponse)
+    def alerts_page(request: Request, kind: str, slug: str):
+        v = alerts_viewer(request, kind, slug)
+        if not isinstance(v, Viewer):
+            return v
+        return templates.TemplateResponse(request, "alerts.html", alerts_page_ctx(request, v))
+
+    def page_url(v: Viewer) -> str:
+        return al.public_url(v.base)
+
+    def prefs_from(values, a) -> dict:
+        try:
+            lead = int(str(values.get("lead") or 30))
+        except ValueError:
+            lead = 30
+        changes = values.get("changes") in ("on", True)
+        reminders = values.get("reminders") in ("on", True)
+        return {"changes": changes and a.changes, "reminders": reminders and a.reminders, "lead": lead}
+
+    @app.post("/{kind}/{slug}/alerts", response_class=HTMLResponse)
+    async def alerts_signup(request: Request, kind: str, slug: str):
+        v = alerts_viewer(request, kind, slug)
+        if not isinstance(v, Viewer):
+            return v
+        form = await request.form()
+        a = v.audience.alerts
+        values = {k: str(form.get(k, "")) for k in ("email", "changes", "reminders", "lead", "channel", "tz")}
+
+        def again(msg: str, status: int = 400) -> Response:
+            ctx = alerts_page_ctx(request, v, values=values, error=msg)
+            return templates.TemplateResponse(request, "alerts.html", ctx, status_code=status)
+
+        if form.get("website") or not form_token_ok(str(form.get("token", "")), f"alerts:{v.key}"):
+            return again("This page was open too long. Please try again.")
+        prefs = prefs_from(values, a)
+        if not (prefs["changes"] or prefs["reminders"]):
+            return again("Pick at least one kind of alert.")
+        if al.count_for(v.audience_id, v.person_id) >= MAX_SUBS:
+            return again("There are already too many alerts on this link.")
+        if not alerts_allowed(client_ip(request)):
+            return again("Too many sign-ups from here; try again in an hour.", 429)
+        channel = values["channel"]
+        if channel == "email":
+            addr = clean_email(values["email"])
+            if not ("email" in a.channels and notes.can_email()):
+                return again("Email alerts aren't available here.")
+            if not addr:
+                return again("That email address doesn't look right.")
+            await run_in_threadpool(
+                al.subscribe, v.audience_id, v.audience, v.person_id, v.person, "email",
+                tz=values["tz"], label=addr, page_url=page_url(v), email=addr, **prefs,
+            )  # fmt: skip
+            ctx = alerts_page_ctx(request, v, sent_to=addr)
+            return templates.TemplateResponse(request, "alerts.html", ctx)
+        if channel == "ntfy" and "ntfy" in a.channels:
+            sub = await run_in_threadpool(
+                al.subscribe, v.audience_id, v.audience, v.person_id, v.person, "ntfy",
+                tz=values["tz"], label="ntfy app", page_url=page_url(v), **prefs,
+            )  # fmt: skip
+            return RedirectResponse(f"/alerts/{sub['token']}?new=1", status_code=303)
+        return again("Pick how you'd like to get alerts.")
+
+    @app.post("/{kind}/{slug}/alerts/push")
+    async def alerts_push(request: Request, kind: str, slug: str):
+        v = find(request, kind, slug)
+        if not isinstance(v, Viewer) or not v.audience.alerts.enabled or v.audience.self_view:
+            return JSONResponse({"ok": False, "error": "Alerts aren't on for this page"}, 404)
+        if not authed(request, v):
+            return JSONResponse({"ok": False, "error": "Please sign in again"}, 403)
+        if int(request.headers.get("content-length") or 0) > 8000:
+            return JSONResponse({"ok": False, "error": "Too much"}, 413)
+        try:
+            data = await request.json()
+            sub = data["subscription"]
+            endpoint, keys = str(sub["endpoint"]), sub["keys"]
+            p256dh, auth = str(keys["p256dh"]), str(keys["auth"])
+        except (ValueError, KeyError, TypeError):
+            return JSONResponse({"ok": False, "error": "That didn't look like a browser subscription"}, 400)
+        if not form_token_ok(str(data.get("token", "")), f"alerts:{v.key}"):
+            return JSONResponse({"ok": False, "error": "This page was open too long; reload it"}, 400)
+        if (
+            not endpoint.startswith("https://")
+            or len(endpoint) > 1000
+            or len(p256dh) > 200
+            or len(auth) > 100
+        ):
+            return JSONResponse({"ok": False, "error": "That didn't look like a browser subscription"}, 400)
+        a = v.audience.alerts
+        if "webpush" not in a.channels:
+            return JSONResponse({"ok": False, "error": "Browser alerts aren't offered here"}, 400)
+        prefs = prefs_from(data, a)
+        if not (prefs["changes"] or prefs["reminders"]):
+            return JSONResponse({"ok": False, "error": "Pick at least one kind of alert"}, 400)
+        if al.count_for(v.audience_id, v.person_id) >= MAX_SUBS or not alerts_allowed(client_ip(request)):
+            return JSONResponse({"ok": False, "error": "Too many alerts on this link"}, 429)
+        made = await run_in_threadpool(
+            al.subscribe, v.audience_id, v.audience, v.person_id, v.person, "webpush",
+            tz=str(data.get("tz") or ""), label=device_label(request.headers.get("user-agent", "")),
+            page_url=page_url(v), endpoint=endpoint, p256dh=p256dh, auth=auth, **prefs,
+        )  # fmt: skip
+        return JSONResponse({"ok": True, "manage": f"/alerts/{made['token']}"})
+
+    def manage_ctx(sub: dict, aud: AudienceCfg, **extra) -> dict:
+        return {
+            "sub": sub,
+            "aud": aud,
+            "a": aud.alerts,
+            "leads": LEADS,
+            "ntfy_server": al.ntfy_server(),
+            "owner_first": (g.cfg.owner_name or "").strip() or None,
+            "done": None,
+            "new": False,
+            **extra,
+        }
+
+    def stopped(request: Request) -> Response:
+        return message(
+            request,
+            "These alerts have stopped",
+            "The link they were turned on from has changed, or alerts were switched off for it. "
+            "Open the schedule's current link to turn them on again.",
+            410,
+        )
+
+    @app.get("/alerts/{token}", response_class=HTMLResponse)
+    def alerts_manage(request: Request, token: str, new: str = ""):
+        sub = al.subs.by_token(token)
+        if not sub or sub.get("who") != "viewer":
+            return not_found(request)
+        ok = al.valid_viewer(sub, confirmed=False)
+        if ok is None:
+            al.subs.remove(sub["id"])
+            return stopped(request)
+        return templates.TemplateResponse(
+            request, "alerts_manage.html", manage_ctx(sub, ok[1], new=bool(new))
+        )
+
+    @app.post("/alerts/{token}", response_class=HTMLResponse)
+    async def alerts_manage_save(request: Request, token: str):
+        sub = al.subs.by_token(token)
+        if not sub or sub.get("who") != "viewer":
+            return not_found(request)
+        ok = al.valid_viewer(sub, confirmed=False)
+        if ok is None:
+            al.subs.remove(sub["id"])
+            return stopped(request)
+        form = await request.form()
+        action = str(form.get("action", ""))
+        aud = ok[1]
+        if action == "stop":
+            al.subs.remove(sub["id"])
+            return message(
+                request, "Alerts stopped", f"You won't get any more alerts about {aud.title}.", 200
+            )
+        if action == "confirm":
+            sub = al.confirm_email(sub) or sub
+            ctx = manage_ctx(sub, aud, done="Alerts are on. You'll get them at this address.")
+            return templates.TemplateResponse(request, "alerts_manage.html", ctx)
+        prefs = prefs_from({k: form.get(k) for k in ("changes", "reminders", "lead")}, aud.alerts)
+        if not (prefs["changes"] or prefs["reminders"]):
+            ctx = manage_ctx(sub, aud, done="Pick at least one kind of alert, or stop them below.")
+            return templates.TemplateResponse(request, "alerts_manage.html", ctx, status_code=400)
+        sub = al.subs.update(sub["id"], **prefs) or sub
+        return templates.TemplateResponse(request, "alerts_manage.html", manage_ctx(sub, aud, done="Saved."))
+
+    @app.get("/alerts/{token}/confirm", response_class=HTMLResponse)
+    def alerts_confirm(request: Request, token: str):
+        sub = al.subs.by_token(token)
+        if not sub or sub.get("who") != "viewer" or sub.get("channel") != "email":
+            return not_found(request)
+        ok = al.valid_viewer(sub, confirmed=False)
+        if ok is None:
+            return stopped(request)
+        return templates.TemplateResponse(request, "alerts_manage.html", manage_ctx(sub, ok[1], confirm=True))
+
     def viewer_asker(request: Request, kind: str, slug: str) -> Asker | Response:
         v = find(request, kind, slug)
         if not isinstance(v, Viewer):
@@ -828,7 +1090,10 @@ def create_app(
         if not authed(request, v):
             return to_login(v, f"{view}/{day}")
         zone = display_zone(request, v)
+        first = seen.get(v.seen_key) is None
         seen.touch(v.seen_key)
+        if first:
+            al.link_opened(v.audience, v.person, "page")
         if view == "day":
             return day_view(request, v, d, zone)
         if view == "week":
@@ -975,6 +1240,7 @@ def create_app(
         if not verify_password(v, password):
             limiter.failed(v.key, ip)
             if limiter.blocked(v.key, ip):
+                al.lockout(v.audience, v.person, v.key)
                 return locked()
             left = limiter.remaining(v.key, ip)
             ctx["error"] = "That password didn't work." + (
@@ -1056,7 +1322,10 @@ def create_app(
         aud = v.audience
         if not aud.allow_ics or not hmac.compare_digest(token, feed_token(g.cfg, v)):
             return not_found(request)
+        first = seen.get(v.seen_key + ":feed") is None
         seen.touch(v.seen_key + ":feed")
+        if first:
+            al.link_opened(v.audience, v.person, "feed")
         lo, hi = allowed_week_bounds(aud, g.today(), g.cfg)
         this = week_start(g.today(), g.cfg)
         # Calendar apps re-download the whole feed often: keep it to about two years ahead, one back.
