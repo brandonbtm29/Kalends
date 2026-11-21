@@ -18,6 +18,7 @@ import time
 import webbrowser
 from pathlib import Path
 
+from . import settings_folder
 from .config import ConfigError, load_config
 
 log = logging.getLogger("kalends")
@@ -50,7 +51,7 @@ def run_service(config_path: Path, env_path: Path | None = None) -> int:
     try:
         from .autostart import migrate_legacy
 
-        moved = migrate_legacy(config_path)
+        moved = migrate_legacy(settings_folder.app_config())  # shortcuts keep Kalends' own config path
         if moved:
             log.info("renamed to Kalends: updated the %s", " and ".join(moved))
     except Exception:  # never let tidying shortcuts stop Kalends from starting
@@ -93,9 +94,11 @@ def service_command(config_path: Path) -> list[str]:
 
 
 def _spawn_background(config_path: Path) -> None:
-    args = service_command(config_path)
+    # Start it the way auto-start does (Kalends' own config path), so it reads settings_location.json
+    app_cfg = settings_folder.app_config()
+    args = service_command(app_cfg)
     kwargs: dict = {
-        "cwd": str(config_path.resolve().parent),
+        "cwd": str(app_cfg.parent),
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
@@ -139,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-e", "--env", default=None, type=Path)
     p.add_argument("--open", action="store_true", help="open the settings panel instead")
     args = p.parse_args(argv)
+    args.config = settings_folder.resolve_config(args.config)  # follow settings_location.json, if any
     if args.open:
         try:
             open_panel(args.config, args.env)

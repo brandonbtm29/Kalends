@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import getpass
 import logging
+import os
 import secrets
 import sys
 from datetime import date
 from pathlib import Path
 
+from . import settings_folder
 from .config import ConfigError, Level, load_config
 
 
@@ -235,8 +237,9 @@ def cmd_autostart(args: argparse.Namespace) -> None:
     from . import autostart
 
     if args.action == "on":
-        st = autostart.enable(args.config)
-        autostart.add_start_menu_entry(args.config)
+        # Kalends' own config path, not a moved one, so a later settings-folder change still applies
+        st = autostart.enable(settings_folder.app_config())
+        autostart.add_start_menu_entry(settings_folder.app_config())
     elif args.action == "off":
         st = autostart.disable()
     else:
@@ -254,7 +257,7 @@ def cmd_shortcut(args: argparse.Namespace) -> None:
 
     try:
         if args.action == "on":
-            st = autostart.add_shortcut(args.config)
+            st = autostart.add_shortcut(settings_folder.app_config())
         elif args.action == "off":
             st = autostart.remove_shortcut()
         else:
@@ -269,11 +272,46 @@ def cmd_shortcut(args: argparse.Namespace) -> None:
     print(("On: " if st.enabled else "Off: ") + st.detail + (f" ({st.where})" if st.enabled else ""))
 
 
+def cmd_settings_folder(args: argparse.Namespace) -> None:
+    app_cfg = settings_folder.app_config()
+    if args.default or args.folder:
+        if args.folder and not Path(args.folder).expanduser().is_absolute():
+            print("error: use a full path, like ~/SyncThing/Kalends/Settings", file=sys.stderr)
+            sys.exit(2)
+        try:
+            moved = settings_folder.change(app_cfg, "" if args.default else args.folder)
+        except (OSError, ValueError) as exc:
+            print(f"error: couldn't change the settings folder: {exc}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Settings folder is now {moved.folder}")
+        if moved.copied:
+            print("  copied: " + ", ".join(moved.copied))
+        if moved.kept:
+            print("  already there, used as they are: " + ", ".join(moved.kept))
+        if moved.replaced:
+            print("  replaced with the settings in use: " + ", ".join(moved.replaced))
+        if moved.backup:
+            print(f"  the replaced copies are in {moved.backup}")
+        print("Restart Kalends to switch (Settings > This computer, or sign out and back in).")
+        return
+    where = settings_folder.settings_dir(app_cfg)
+    note = " (Kalends' own folder, the default)" if settings_folder.is_default(app_cfg) else ""
+    if os.environ.get(settings_folder.ENV_VAR):
+        note += f" (set by {settings_folder.ENV_VAR})"
+    print(f"{where}{note}")
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # its INFO lines would print feed URLs
     p = argparse.ArgumentParser(prog="kalends", description="Share a filtered view of your calendars.")
-    p.add_argument("-c", "--config", default="config.yaml", type=Path, help="path to config.yaml")
+    p.add_argument(
+        "-c",
+        "--config",
+        default="config.yaml",
+        type=Path,
+        help="path to config.yaml (settings_location.json beside it can point elsewhere)",
+    )
     p.add_argument("-e", "--env", default=None, type=Path, help="path to .env (default: beside config)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -305,6 +343,16 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("action", choices=["on", "off", "status"])
     s.set_defaults(fn=cmd_shortcut)
 
+    s = sub.add_parser(
+        "settings-folder",
+        help="show or change where config.yaml, .env and the other settings files are kept",
+    )
+    s.add_argument(
+        "folder", nargs="?", help="full path to keep the settings in, e.g. ~/SyncThing/Kalends/Settings"
+    )
+    s.add_argument("--default", action="store_true", help="go back to Kalends' own folder")
+    s.set_defaults(fn=cmd_settings_folder)
+
     s = sub.add_parser("set-base-url", help="set the public address used in share links")
     s.add_argument("url")
     s.set_defaults(fn=cmd_set_base_url)
@@ -329,6 +377,7 @@ def main(argv: list[str] | None = None) -> None:
     s.set_defaults(fn=cmd_hash_password)
 
     args = p.parse_args(argv)
+    args.config = settings_folder.resolve_config(args.config)  # follow settings_location.json, if any
     args.fn(args)
 
 

@@ -113,6 +113,49 @@
   {% endif %}
 </section>
 
+<section class="panel" id="folder">
+  <div class="panelhead"><h2>Settings folder</h2>
+    {% if loc.default %}<span class="muted small">Kalends' own folder</span>{% else %}<span class="status ok">Moved</span>{% endif %}
+  </div>
+  {% if folder_error %}<p class="error" role="alert">{{ folder_error }}</p>{% endif %}
+  <p>Kalends keeps <code>config.yaml</code>, <code>.env</code> and the files beside them (meeting requests, alerts, school dates, Kalends calendars, the feed cache, logs and update backups) in
+    <code>{{ loc.folder }}</code>{% if loc.default %} <span class="muted">(the default)</span>{% endif %}.</p>
+  {% if loc.restart_needed %}
+  <div class="notice">
+    <p>Kalends is still running from <code>{{ loc.in_use }}</code>. Restart it to switch. Share links pause for a few seconds.</p>
+    <form method="post" action="/setup/folder/restart" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">Restart Kalends now</button>
+    </form>
+  </div>
+  {% endif %}
+  {% if loc.env %}
+  <p class="hint">Set by the {{ loc.env_var }} environment variable, so it can't be changed here.</p>
+  {% else %}
+  <div class="notice">
+    <p><strong>Kalends' own folder is the safest place.</strong> Before moving the settings, for example into a SyncThing folder:</p>
+    <ul>
+      <li><strong>.env holds secrets:</strong> your private calendar links, the key that signs panel sign-ins, and the admin password hash. Anyone who can open that folder, on any device it syncs to, can read your calendars.</li>
+      <li><strong>Run Kalends on one computer at a time</strong> with that folder. Two copies saving the same files overwrite each other's changes or leave sync-conflict copies, and both would answer your share links.</li>
+      <li>If the folder already has Kalends settings (for example synced from another computer), Kalends uses those instead of overwriting them.</li>
+      <li>Nothing is deleted. After a move, the old copies stay in Kalends' own folder (<code>{{ loc.app_dir }}</code>) but aren't used. Going back there later puts the settings in use in their place, after saving the old copies to <code>backups/</code>.</li>
+    </ul>
+  </div>
+  <form method="post" action="/setup/folder" class="form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Move settings to
+      <input type="text" name="folder" placeholder="~/SyncThing/Kalends/Settings" spellcheck="false" autocomplete="off">
+      <span class="hint">A full path on this computer; <code>~</code> is your home folder. The folder is created if needed. Kalends restarts to switch, and share links pause for a few seconds.</span>
+    </label>
+    <label class="check"><input type="checkbox" name="understand"> I've read the warning above</label>
+    <div class="actions">
+      <button type="submit" name="action" value="move">Move settings and restart</button>
+      {% if not loc.default %}<button type="submit" name="action" value="default" class="secondary" formnovalidate data-confirm="Go back to Kalends' own folder? Kalends restarts to switch.">Back to Kalends' own folder</button>{% endif %}
+    </div>
+  </form>
+  {% endif %}
+</section>
+
 <section class="panel" id="updates">
   <div class="panelhead"><h2>Updates</h2>
     {% if upd.update_available %}<span class="status wait">Version {{ upd.release.version }} available</span>{% else %}<span class="muted small">You have version {{ version }}</span>{% endif %}

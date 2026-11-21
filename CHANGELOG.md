@@ -8,6 +8,20 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-21
+
+### Added
+- **Settings folder** (Settings › This computer): keep `config.yaml`, `.env` and the files beside them
+  (meeting requests, video sign-ins, alerts, school dates, Kalends calendars, the feed cache, logs and
+  update backups) in another folder, such as a SyncThing folder, instead of the Kalends folder (still
+  the default). The page warns that `.env` holds your calendar links and secrets and that only one
+  computer should run Kalends from a shared folder. Files already in the new folder are used, not
+  overwritten; nothing is deleted; Kalends restarts into the new folder by itself. Going back to the
+  Kalends folder puts the settings in use back there, after saving the old copies to `backups/`.
+  Auto-start and the shortcuts keep working, because Kalends reads the choice
+  (`settings_location.json`, one per computer) each time it starts. `KALENDS_SETTINGS_DIR` overrides it.
+- `kalends settings-folder [PATH | --default]`: the same from a terminal.
+
 ## [0.15.0] - 2026-11-17
 
 ### Added

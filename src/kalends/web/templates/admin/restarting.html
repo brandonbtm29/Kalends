@@ -1,0 +1,22 @@
+{% extends "admin/base.html" %}
+{% block title %}Restarting · Kalends settings{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="20;url=/setup#folder">{% endblock %}
+{% block content %}
+<header class="pagehead">
+  <div>
+    <h1>Restarting Kalends…</h1>
+    <p class="muted">It will use the settings in <code>{{ folder }}</code>.</p>
+  </div>
+</header>
+<section class="panel">
+  {% if moved %}
+  <p>
+    {% if moved.copied %}Copied {{ moved.copied | join(', ') }} there.{% endif %}
+    {% if moved.kept %}Using the {{ moved.kept | join(', ') }} already there (not overwritten).{% endif %}
+    {% if moved.replaced %}Put the settings in use in place of the old {{ moved.replaced | join(', ') }}{% if moved.backup %} (saved to <code>backups/{{ moved.backup.name }}</code>){% endif %}.{% endif %}
+    Nothing was deleted.
+  </p>
+  {% endif %}
+  <p class="muted">This page goes back to <a href="/setup#folder">Settings &rsaquo; This computer</a> in about 20 seconds. If it says the panel can't be reached, wait a few seconds and reload. If the folder already had settings from another computer, sign in with that computer's admin password.</p>
+</section>
+{% endblock %}

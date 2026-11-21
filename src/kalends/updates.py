@@ -218,19 +218,12 @@ def update_readiness(root: Path, tag: str | None = None, fetch: bool = True) -> 
 
 def backup_settings(config_path: Path, env_path: Path) -> Path:
     """Copy config.yaml, .env, state/request/sign-in files and Kalends calendars to backups/<timestamp>/."""
+    from .settings_folder import FILES
+
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = config_path.resolve().parent / "backups" / f"before-update-{stamp}"
     dest.mkdir(parents=True, exist_ok=True)
-    for src in (
-        config_path,
-        env_path,
-        config_path.with_name("state.json"),
-        config_path.with_name("requests.json"),
-        config_path.with_name("video-accounts.json"),
-        config_path.with_name("school-state.json"),
-        config_path.with_name("alerts.json"),
-        config_path.with_name("alerts-state.json"),
-    ):
+    for src in (config_path, env_path, *(config_path.with_name(name) for name in FILES)):
         if src.is_file():
             shutil.copy2(src, dest / src.name)
     local = config_path.resolve().parent / "local-calendars"
@@ -293,6 +286,52 @@ def start_update(
     ]
     kwargs: dict = {
         "cwd": str(root),
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000  # detached, own group, no window
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(args, **kwargs)  # noqa: S603
+    return log_file
+
+
+def start_restart(
+    config_path: Path, app_config: Path, start_cmd: list[str], health_url: str, python: str | None = None
+) -> Path:
+    """Restart Kalends from a detached copy of the update helper. Returns its log path.
+
+    The helper stops this process, then runs ``start_cmd`` in ``app_config``'s folder (Kalends' own
+    config path, so the new process reads settings_location.json again) and waits for ``health_url``.
+    Logs go beside ``config_path`` (the settings in use now).
+    """
+    from . import update_helper
+
+    logs = config_path.resolve().parent / "logs"
+    logs.mkdir(exist_ok=True)
+    helper = logs / "update-helper.py"
+    shutil.copy2(update_helper.__file__, helper)
+    log_file = logs / "update.log"
+    py = python or sys.executable
+    args = [
+        py,
+        str(helper),
+        "--restart-only",
+        "--config",
+        str(Path(app_config).resolve()),
+        "--pid",
+        str(os.getpid()),
+        "--start",
+        json.dumps(start_cmd),
+        "--health",
+        health_url,
+        "--log",
+        str(log_file),
+    ]
+    kwargs: dict = {
+        "cwd": str(Path(app_config).resolve().parent),
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,

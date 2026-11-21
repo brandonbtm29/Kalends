@@ -148,6 +148,14 @@ Kalends checks GitHub once a day for a new [release](https://github.com/brandonb
 
 Releases only ever move forward through tagged versions; unreleased work on `main` is never installed by the update button. If a release changes the format of `config.yaml`, Kalends upgrades your file automatically on start and keeps the original as `config.yaml.v<N>.bak`.
 
+### Where your settings are kept
+
+`config.yaml`, `.env` (secrets: calendar links, the server key, the admin password hash) and the files beside them (`state.json`, meeting requests, video sign-ins, alerts, school dates, Kalends calendars) live in the Kalends folder, together with the feed cache, `logs/` and `backups/`. That's the default and the safest place.
+
+To keep them somewhere else, for example a SyncThing folder, open **Settings › This computer › Settings folder**, type a full path (`~/SyncThing/Kalends/Settings`), tick the box under the warning and press **Move settings and restart**. Kalends copies what isn't there yet, uses any settings already there (so a second computer picks up synced settings instead of overwriting them), deletes nothing, and restarts into the new folder. **Back to Kalends' own folder** undoes it: the settings in use go back, and the old copies left there are saved to `backups/` first. `kalends settings-folder [PATH | --default]` does the same from a terminal (then restart Kalends). The choice is stored in `settings_location.json` in the Kalends folder, one per computer and ignored by git; the `KALENDS_SETTINGS_DIR` environment variable overrides it.
+
+Before you do: anyone who can open that folder, on any device it syncs to, can read your calendar links, and only one computer should run Kalends from it at a time. Two copies would overwrite each other's changes and both answer your share links.
+
 ### Optional extras
 
 - **Start even before anyone signs in (Windows):** if the PC sometimes reboots and sits at the sign-in screen, run `scripts\windows\start-before-login.ps1` from an administrator PowerShell.
@@ -308,12 +316,13 @@ Run these from the Kalends folder as `.venv\Scripts\kalends …` (Windows) or `.
 | `kalends init [--setup-later]` | create `config.yaml` + `.env` for a fresh setup |
 | `kalends admin-password` | set or reset the settings-panel password |
 | `kalends set-base-url URL` | set the public address used in share links |
+| `kalends settings-folder [PATH \| --default]` | show or change where `config.yaml`, `.env` and the other settings files are kept (then restart Kalends) |
 | `kalends check` | validate config and fetch every feed; exit code 0 = all OK |
 | `kalends preview -a NAME [-w YYYY-MM-DD]` | print what an audience sees for a week |
 | `kalends links` | print each audience's links |
 | `kalends new-slug` / `new-secret` / `hash-password` | generate values for hand-edited configs |
 
-All commands take `-c path/to/config.yaml` (default `./config.yaml`) and `-e path/to/.env` (default: beside the config).
+All commands take `-c path/to/config.yaml` (default `./config.yaml`) and `-e path/to/.env` (default: beside the config). If `settings_location.json` sits beside that config, they follow it to the settings folder.
 
 ## Good to know
 

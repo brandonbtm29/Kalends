@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -33,7 +34,17 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from markupsafe import Markup, escape
 from starlette.concurrency import run_in_threadpool
 
-from .. import __version__, autostart, bookings, conferencing, localcal, support, tailscale, updates
+from .. import (
+    __version__,
+    autostart,
+    bookings,
+    conferencing,
+    localcal,
+    settings_folder,
+    support,
+    tailscale,
+    updates,
+)
 from ..alerts import LEADS
 from ..availability import busy_times, is_free
 from ..config import (
@@ -116,6 +127,7 @@ FLASH = {
     "ts_public": "Share links are now public.",
     "ts_public_off": "Share links are no longer public.",
     "auto_on": "Kalends will start automatically when you sign in.",
+    "folder_same": "Kalends already keeps its settings in that folder; nothing changed.",
     "auto_off": "Automatic start turned off.",
     "grp_added": "Group created. Put calendars in it below, then set its level on Who sees what.",
     "grp_deleted": "Group removed. Its calendars are still here, now without a group.",
@@ -730,6 +742,22 @@ def create_admin_app(rt: Runtime) -> FastAPI:
             "upd_ready": ready,
             "upd_result": result,
             "repo": cfg().updates.repo,
+            "loc": folder_ctx(),
+        }
+
+    def folder_ctx() -> dict:
+        """The This computer page's Settings folder box."""
+        app_cfg = settings_folder.app_config()
+        chosen = settings_folder.settings_dir(app_cfg)
+        in_use = store.config_path.resolve().parent if store else chosen
+        return {
+            "folder": str(chosen),
+            "app_dir": str(app_cfg.parent),
+            "default": settings_folder.is_default(app_cfg),
+            "env": bool(os.environ.get(settings_folder.ENV_VAR)),
+            "env_var": settings_folder.ENV_VAR,
+            "in_use": str(in_use),
+            "restart_needed": chosen != in_use,
         }
 
     @app.post("/setup/updates/check")
@@ -770,7 +798,7 @@ def create_admin_app(rt: Runtime) -> FastAPI:
             updates.PROJECT_ROOT,
             store.config_path,
             tag,
-            service_command(store.config_path),
+            service_command(settings_folder.app_config()),  # re-reads settings_location.json
             f"http://127.0.0.1:{cfg().server.port}/healthz",
         )
         log.info("updating to %s (settings backed up to %s)", tag, backup)
@@ -840,9 +868,79 @@ def create_admin_app(rt: Runtime) -> FastAPI:
         if form.get("action") == "off":
             await run_in_threadpool(autostart.disable)
             return done("/setup", "auto_off")
-        await run_in_threadpool(autostart.enable, store.config_path)
-        await run_in_threadpool(autostart.add_start_menu_entry, store.config_path)
+        # Kalends' own config path, not a moved one, so a later settings-folder change still applies
+        await run_in_threadpool(autostart.enable, settings_folder.app_config())
+        await run_in_threadpool(autostart.add_start_menu_entry, settings_folder.app_config())
         return done("/setup", "auto_on")
+
+    def folder_error(request: Request, sess: dict, message: str):
+        ts = ts_status()
+        ctx = {"ts": ts, "auto": autostart.status(), "steps": checklist(ts), "result": None, **update_ctx()}
+        ctx["folder_error"] = message
+        return page(request, "admin/setup.html", ctx, sess, 400)
+
+    async def restart_into_settings_folder(request: Request, sess: dict, moved=None):
+        from ..service import service_command
+
+        app_cfg = settings_folder.app_config()
+        target = settings_folder.settings_dir(app_cfg)
+        await run_in_threadpool(
+            updates.start_restart,
+            store.config_path,
+            app_cfg,
+            service_command(app_cfg),
+            f"http://127.0.0.1:{cfg().server.port}/healthz",
+        )
+        log.info("restarting to use the settings in %s", target)
+        return page(request, "admin/restarting.html", {"folder": str(target), "moved": moved}, sess)
+
+    @app.post("/setup/folder", response_class=HTMLResponse)
+    async def setup_folder(request: Request):
+        """Move the settings (or go back to Kalends' own folder), then restart into them."""
+        sess, form = await checked_form(request)
+        if not sess:
+            return to_login()
+        if store is None:
+            return done("/setup", "checked")
+        folder = ""
+        if form.get("action") != "default":
+            folder = str(form.get("folder", "")).strip()
+            if not folder:
+                return folder_error(request, sess, "Type the folder to keep the settings in.")
+            if not Path(os.path.expanduser(folder)).is_absolute():
+                return folder_error(
+                    request,
+                    sess,
+                    "Use a full path, like ~/SyncThing/Kalends/Settings or D:\\SyncThing\\Kalends.",
+                )
+            if form.get("understand") != "on":
+                return folder_error(request, sess, "Tick the box to confirm you've read the warning.")
+        rt.seen.flush()  # so state.json is current before it's copied
+        try:
+            moved = await run_in_threadpool(settings_folder.change, settings_folder.app_config(), folder)
+        except (OSError, ValueError) as exc:
+            return folder_error(request, sess, f"Couldn't change the settings folder: {exc}")
+        if moved.folder.resolve() == store.config_path.resolve().parent:
+            return done("/setup#folder", "folder_same")
+        log.info(
+            "settings folder set to %s (copied %s, kept %s, replaced %s)",
+            moved.folder,
+            moved.copied,
+            moved.kept,
+            moved.replaced,
+        )
+        return await restart_into_settings_folder(request, sess, moved)
+
+    @app.post("/setup/folder/restart", response_class=HTMLResponse)
+    async def setup_folder_restart(request: Request):
+        """Restart after the folder was changed elsewhere (``kalends settings-folder``)."""
+        sess, _ = await checked_form(request)
+        if not sess:
+            return to_login()
+        if store is None:
+            return done("/setup", "checked")
+        rt.seen.flush()
+        return await restart_into_settings_folder(request, sess)
 
     # -- overview ------------------------------------------------------------------------
 

@@ -13,6 +13,9 @@ Steps:
    start the old version again.
 
 The outcome is written to ``logs/update-result.json`` for the panel to show.
+
+With ``--restart-only`` it skips all of that and just stops Kalends and starts it again (used
+after the settings folder changes; see :func:`kalends.updates.start_restart`).
 """
 
 from __future__ import annotations
@@ -233,12 +236,26 @@ def update(a: argparse.Namespace) -> int:
     return 0
 
 
+def restart(a: argparse.Namespace) -> int:
+    """Stop the running Kalends and start it again (after its settings folder changed)."""
+    start_cmd = json.loads(a.start) if a.start else []
+    say("restarting Kalends")
+    stop(a.pid)
+    start(start_cmd, Path(a.config).parent)
+    if healthy(a.health, a.wait):
+        say("restarted")
+        return 0
+    say("Kalends didn't answer after the restart; see logs/kalends.log in the settings folder")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     global LOG
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--root", required=True)
+    p.add_argument("--root", default=".")
     p.add_argument("--config", required=True)
-    p.add_argument("--tag", required=True)
+    p.add_argument("--tag", default="")
+    p.add_argument("--restart-only", action="store_true", help="don't update: just stop and start again")
     p.add_argument("--pid", type=int, default=0)
     p.add_argument("--python", default=sys.executable)
     p.add_argument("--start", default="")
@@ -250,6 +267,10 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     LOG = Path(a.log) if a.log else None
     time.sleep(1.5)  # let the panel finish answering the "Update now" request
+    if a.restart_only:
+        return restart(a)
+    if not a.tag:
+        p.error("--tag is required unless --restart-only")
     try:
         return update(a)
     except Exception as exc:  # last resort: never leave without a result

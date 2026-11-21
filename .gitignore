@@ -8,6 +8,8 @@
 /school-state.json
 /alerts.json
 /alerts-state.json
+# Where this computer keeps the files above, if moved (Settings > This computer > Settings folder)
+/settings_location.json
 .env.local
 cache/
 *.ics.cache
