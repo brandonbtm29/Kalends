@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,6 +11,7 @@ from kalends.core import Kalends
 
 FIXTURES = Path(__file__).parent / "fixtures"
 WEEK = date(2026, 10, 26)  # Mon Oct 26 - Sun Nov 1 2026 (US DST ends Nov 1)
+TODAY = WEEK + timedelta(days=2)  # what Kalends.today() returns in tests, unless a test pins its own
 PARTNER_PASSWORD = "correct horse battery"
 PARTNER_SLUG = "partnerSlug_abcdefghij"
 COWORKER_SLUG = "coworkerSlug_klmnopqrs"
@@ -51,6 +52,17 @@ audiences:
       classes: label
       family: hidden
 """
+
+
+@pytest.fixture(autouse=True)
+def _pin_today(monkeypatch):
+    """Keep "today" inside the fixtures' week, so tests don't start failing as the real date moves on.
+
+    The fixture calendars and expiry dates are fixed in 2026-27; with the real clock, the
+    52-week browse limits and people's end dates would put them out of range a year later.
+    Tests that need another day still set ``g.today = lambda: ...`` on their own instance.
+    """
+    monkeypatch.setattr(Kalends, "today", lambda self: TODAY)
 
 
 @pytest.fixture(scope="session")

@@ -101,6 +101,9 @@ def signed_in(fresh):
 
 def test_setup_page_without_tailscale(signed_in, monkeypatch):
     monkeypatch.setattr(tailscale, "find_cli", lambda: None)
+    # the count includes "Start automatically", so don't let this computer's own auto-start decide it
+    off = autostart.AutostartStatus(True, False, "x", "Starts at login")
+    monkeypatch.setattr(autostart, "status", lambda: off)
     _, c, _ = signed_in
     html = c.get("/setup?refresh=1").text
     assert "Download Tailscale" in html and "1 of 6 done" in html
