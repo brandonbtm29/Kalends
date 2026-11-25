@@ -140,7 +140,7 @@
 
   <section class="panel">
     <div class="panelhead"><h2>Email</h2>{% if 'email' in enabled %}<span class="status ok">On</span>{% else %}<span class="status">Off</span>{% endif %}</div>
-    <p class="muted">Sends from an email account you own. With Gmail, turn on 2-Step Verification and create an <strong>app password</strong> (Google Account &rsaquo; Security &rsaquo; App passwords); use smtp.gmail.com, port 587. Proton Mail needs its paid Bridge.</p>
+    <p class="muted">Sends from an email account you own. With Gmail, turn on 2-Step Verification and create an <strong>app password</strong> (Google Account &rsaquo; Security &rsaquo; App passwords); use smtp.gmail.com, port 587. Proton Mail needs its paid Bridge: running on this computer, use 127.0.0.1, the port and STARTTLS that Bridge shows, and Bridge's own username and password (not your Proton password). Kalends accepts the certificate a mail server on this computer makes for itself, and checks every other server's.</p>
     <label class="check"><input type="checkbox" name="email_enabled" {% if n.email.enabled %}checked{% endif %}> Email me</label>
     <div class="grid2">
       <label>Mail server (SMTP) <input type="text" name="smtp_host" value="{{ n.email.smtp_host or '' }}" placeholder="smtp.gmail.com" spellcheck="false"></label>

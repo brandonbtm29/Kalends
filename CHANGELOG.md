@@ -8,6 +8,16 @@ notes come from the matching section below.
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-11-25
+
+### Fixed
+- **Email through Proton Mail Bridge**, or another mail server on the same computer (`127.0.0.1`,
+  `::1`, `localhost`): Kalends now accepts the certificate such a server makes for itself, so
+  STARTTLS works. Mail to them never leaves the computer; every other mail server's certificate
+  is still checked. The Notifications page says which settings Bridge needs.
+- Email errors say what went wrong instead of "Couldn't reach it (SSLError)": a port that doesn't
+  use SSL/TLS ("choose STARTTLS instead") or a certificate that isn't trusted.
+
 ## [0.16.0] - 2026-11-21
 
 ### Added

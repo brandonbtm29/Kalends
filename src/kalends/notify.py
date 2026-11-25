@@ -8,6 +8,7 @@ a page, and the last result of each channel is kept for the panel to show.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import smtplib
 import ssl
@@ -272,7 +273,7 @@ class Notifier:
                 params={"method": "PUBLISH"},
             )
         host, port = e.smtp_host or "", e.smtp_port
-        ctx = ssl.create_default_context()
+        ctx = tls_context(host)
         if e.security == "ssl":
             server: smtplib.SMTP = smtplib.SMTP_SSL(host, port, context=ctx, timeout=20)
         else:
@@ -296,6 +297,35 @@ def _header(text: str) -> str:
     return text.encode("ascii", "replace").decode("ascii")[:200]
 
 
+def on_this_computer(host: str) -> bool:
+    """Is ``host`` this computer itself (127.0.0.1, ::1 or localhost)?"""
+    h = host.strip().strip("[]").rstrip(".").lower()
+    if h == "localhost" or h.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def tls_context(host: str) -> ssl.SSLContext:
+    """TLS for a mail server: its certificate is checked, unless the server runs on this computer.
+
+    Mail bridges such as Proton Mail Bridge listen on 127.0.0.1 with a certificate they made
+    for themselves. What Kalends sends them never leaves the computer, so there is nothing to
+    check that certificate against; every other server's certificate is checked as usual.
+    """
+    ctx = ssl.create_default_context()
+    if on_this_computer(host):
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+# what OpenSSL says when the other side doesn't answer in TLS (e.g. SSL/TLS chosen for a STARTTLS port)
+_NOT_TLS = {"WRONG_VERSION_NUMBER", "RECORD_LAYER_FAILURE", "PACKET_LENGTH_TOO_LONG", "UNKNOWN_PROTOCOL"}
+
+
 def _safe_error(exc: Exception) -> str:
     """A readable error without secrets (webhook links, topics, passwords)."""
     import re
@@ -304,6 +334,12 @@ def _safe_error(exc: Exception) -> str:
     text = re.sub(r"https?://\S+", "<link>", text)
     if isinstance(exc, smtplib.SMTPAuthenticationError):
         return "The mail server refused the username or password (for Gmail, use an app password)."
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return "The server's certificate isn't trusted (self-signed, expired or made out to another name)."
+    if isinstance(exc, ssl.SSLError) and (
+        getattr(exc, "reason", None) in _NOT_TLS or any(r in str(exc) for r in _NOT_TLS)
+    ):
+        return "The server doesn't start SSL/TLS on this port: choose STARTTLS instead."
     if isinstance(exc, httpx.HTTPStatusError):
         return f"The service answered HTTP {exc.response.status_code}."
     if isinstance(exc, httpx.HTTPError | OSError):

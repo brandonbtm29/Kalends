@@ -249,7 +249,7 @@ A table of ticks decides which of these go to which way of reaching you. By defa
 | --- | --- | --- |
 | **Phone** | the free [ntfy](https://ntfy.sh) app | Kalends suggests a random topic; subscribe to it in the app. Tapping a notification opens the settings panel (with Tailscale on). |
 | **Browser** | a browser on your computer or phone | Press **Turn on notifications in this browser** in each browser you want them in. On iPhone and iPad, add the settings panel to your Home Screen first and turn them on from there. Messages are encrypted so only that browser can read them. |
-| **Email** | an email account with SMTP | For Gmail: turn on 2-Step Verification, create an app password, use `smtp.gmail.com`, port 587. Can also email requesters a confirmation and your answer, with a calendar file. |
+| **Email** | an email account with SMTP | For Gmail: turn on 2-Step Verification, create an app password, use `smtp.gmail.com`, port 587. Proton Mail Bridge on the same computer: `127.0.0.1`, Bridge's port (usually 1025), STARTTLS, and the username and password Bridge shows. Can also email requesters a confirmation and your answer, with a calendar file. |
 | **Discord** | a server you manage | Channel settings › Integrations › Webhooks › New Webhook › Copy Webhook URL. |
 
 Each has a **Send a test** button. Topics, passwords, webhook links and the browser-notification signing key are stored in `.env`, never in `config.yaml`. Your browsers are listed on the page (with **Remove**); a browser that turns notifications off is forgotten by itself.
